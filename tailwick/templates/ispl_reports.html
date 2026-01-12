@@ -1,0 +1,351 @@
+{% extends 'partials/base.html' %}
+{% block content %}
+<div class="order-6 col-span-12 2xl:order-1 card 2xl:col-span-12">
+    <div class="card-body">
+        <!-- Toggle Button -->
+        <button type="button" id="toggle-filter-btn"
+            class="flex items-center justify-between w-full px-4 py-2 mb-4 text-sm font-medium text-left text-white bg-custom-500 rounded-md hover:bg-custom-600 focus:outline-none focus-visible:ring focus-visible:ring-custom-500 focus-visible:ring-opacity-75">
+            <span>Filters</span>
+            <svg id="filter-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                class="w-5 h-5 transition-transform duration-200">
+                <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+        </button>
+
+        <!-- Filter Section -->
+        <div id="filter-section">
+            <form id="filter-form" method="GET" action="" class="flex flex-col gap-3 md:flex-row md:items-end md:gap-4">
+
+                <!-- Tournament -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="tournament" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Tournament</label>
+                    <select id="tournament" name="tournament" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100" onchange="this.form.submit()">
+                        <option value="" disabled {% if not selected_tournament %}selected{% endif %}>Select Tournament</option>
+                        {% for t in tournaments %}
+                        <option value="{{ t.value }}" {% if selected_tournament == t.value|string %}selected{% endif %}>{{ t.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Team -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="team" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Team</label>
+                    <select id="team" name="team" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100" onchange="this.form.submit()">
+                        <option value="" disabled {% if not selected_team %}selected{% endif %}>Select Team</option>
+                        {% for team in teams %}
+                        <option value="{{ team }}" {% if selected_team == team %}selected{% endif %}>{{ team }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Matches (Multi-select) -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="matches" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Matches</label>
+                    <select id="matches" name="matches" multiple data-choices data-choices-removeItem class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100" onchange="this.form.submit()">
+                        <option value="All" {% if 'All' in selected_matches %}selected{% endif %}>All</option>
+                        {% if 'All' not in selected_matches %}
+                            {% for m in matches %}
+                            <option value="{{ m }}" {% if m in selected_matches %}selected{% endif %}>{{ m }}</option>
+                            {% endfor %}
+                        {% endif %}
+                    </select>
+
+                    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+                    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
+                    <script>
+                    document.addEventListener('DOMContentLoaded', function() {
+                        const matchesDropdown = document.getElementById('matches');
+                        if (matchesDropdown) {
+                            const choicesInstance = new Choices(matchesDropdown, {
+                                removeItemButton: true,
+                                searchEnabled: true,
+                                shouldSort: false
+                            });
+                            matchesDropdown.addEventListener('change', function(e) {
+                                const allOption = Array.from(matchesDropdown.options).find(opt => opt.value === 'All');
+                                if (allOption && allOption.selected) {
+                                    // Deselect all other options visually, but submit all matches
+                                    Array.from(matchesDropdown.options).forEach(opt => {
+                                        if (opt.value !== 'All') opt.selected = false;
+                                    });
+                                    // Set Choices.js value to only 'All' visually
+                                    choicesInstance.setValue(['All']);
+                                    // Create a hidden form and submit all matches
+                                    const form = matchesDropdown.form;
+                                    if (form) {
+                                        // Remove any previous hidden inputs
+                                        Array.from(form.querySelectorAll('.all-matches-hidden')).forEach(el => el.remove());
+                                        {% if matches %}
+                                        {% for m in matches %}
+                                        if (!matchesDropdown.querySelector('option[value="{{ m }}"]').selected) {
+                                            const hidden = document.createElement('input');
+                                            hidden.type = 'hidden';
+                                            hidden.name = 'matches';
+                                            hidden.value = '{{ m }}';
+                                            hidden.className = 'all-matches-hidden';
+                                            form.appendChild(hidden);
+                                        }
+                                        {% endfor %}
+                                        {% endif %}
+                                    }
+                                } else {
+                                    // Remove hidden inputs if not 'All'
+                                    const form = matchesDropdown.form;
+                                    if (form) {
+                                        Array.from(form.querySelectorAll('.all-matches-hidden')).forEach(el => el.remove());
+                                    }
+                                }
+                            });
+                        }
+                    });
+                    </script>
+
+                    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+                    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
+                    <script>
+                    document.addEventListener('DOMContentLoaded', function() {
+                        const matchesDropdown = document.getElementById('matches');
+                        if (matchesDropdown) {
+                            new Choices(matchesDropdown, {
+                                removeItemButton: true,
+                                searchEnabled: true,
+                                shouldSort: false
+                            });
+                        }
+                    });
+                    </script>
+                </div>
+
+                <!-- Generate Button -->
+                <div class="relative w-full md:w-auto">
+                    <button type="submit" class="px-6 py-2 text-white bg-custom-500 rounded-md hover:bg-custom-600">Generate</button>
+                </div>
+            </form>
+        </div>
+        </div>
+        <!-- Tabs: Powerplay, Tape Ball, 50-50 Over -->
+        <div class="mt-6 border-b border-gray-200 dark:border-zink-600">
+            <ul class="flex flex-wrap -mb-px text-lg font-semibold text-center" role="tablist">
+                <li class="mr-2">
+                    <button type="button" data-tab="powerplay" class="report-tab-btn inline-block px-5 py-3 text-custom-600 border-b-2 border-custom-500 rounded-t-lg active dark:text-custom-300 dark:border-custom-400" aria-controls="powerplayTab" aria-selected="true">
+                        Powerplay
+                    </button>
+                </li>
+                <li class="mr-2">
+                    <button type="button" data-tab="tapeball" class="report-tab-btn inline-block px-5 py-3 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400" aria-controls="tapeballTab" aria-selected="false">
+                        Tape Ball
+                    </button>
+                </li>
+                <li class="mr-2">
+                    <button type="button" data-tab="fifty" class="report-tab-btn inline-block px-5 py-3 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400" aria-controls="fiftyTab" aria-selected="false">
+                        50-50 Over
+                    </button>
+                </li>
+            </ul>
+        </div>
+        <!-- Blank tab content containers -->
+                <div id="powerplayTab" class="mt-4">
+                    {% if powerplay_report and powerplay_report|length > 0 %}
+                    <div class="overflow-x-auto rounded-md">
+                        <table class="min-w-full text-sm text-left border border-slate-300 dark:border-zink-600">
+                            <thead class="bg-custom-100 dark:bg-zink-800">
+                                <tr>
+                                    <th class="px-4 py-2">Powerplay No</th>
+                                    <th class="px-4 py-2">Overs</th>
+                                    <th class="px-4 py-2">Wkts</th>
+                                    <th class="px-4 py-2">Runs</th>
+                                    <th class="px-4 py-2">Fours</th>
+                                    <th class="px-4 py-2">Sixes</th>
+                                    <th class="px-4 py-2">WD</th>
+                                    <th class="px-4 py-2">NB</th>
+                                    <th class="px-4 py-2">FH</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in powerplay_report %}
+                                <tr class="border-b border-slate-200 dark:border-zink-700">
+                                    <td class="px-4 py-2">{{ row.PowerplayNo }}</td>
+                                    <td class="px-4 py-2">{{ row.From }} - {{ row.To }}</td>
+                                    <td class="px-4 py-2">{{ row.Wkts }}</td>
+                                    <td class="px-4 py-2">{{ row.Runs }}</td>
+                                    <td class="px-4 py-2">{{ row.Fours }}</td>
+                                    <td class="px-4 py-2">{{ row.Sixes }}</td>
+                                    <td class="px-4 py-2">{{ row.WD }}</td>
+                                    <td class="px-4 py-2">{{ row.NB }}</td>
+                                    <td class="px-4 py-2">{{ row.FH }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                        <div class="text-slate-500 dark:text-zink-300">No powerplay data available for the selected match and team.</div>
+                    {% endif %}
+                </div>
+        <div id="tapeballTab" class="mt-4" style="display:none;">
+            {% if tapeball_deliveries and tapeball_deliveries|length > 0 %}
+            <div class="mb-4">
+                <strong>Tape Ball Summary:</strong>
+                <span class="ml-3">Runs: {{ tapeball_summary.Runs }}</span>
+                <span class="ml-3">Wkts: {{ tapeball_summary.Wkts }}</span>
+                <span class="ml-3">Balls: {{ tapeball_summary.Balls }}</span>
+            </div>
+            <div class="overflow-x-auto rounded-md">
+                <table class="min-w-full text-sm text-left border border-slate-300 dark:border-zink-600">
+                    <thead class="bg-custom-100 dark:bg-zink-800">
+                        <tr>
+                            <th class="px-4 py-2">Over</th>
+                            <th class="px-4 py-2">Ball</th>
+                            <th class="px-4 py-2">Batter</th>
+                            <th class="px-4 py-2">Bowler</th>
+                            <th class="px-4 py-2">Runs</th>
+                            <th class="px-4 py-2">Wicket</th>
+                            <th class="px-4 py-2">Wide</th>
+                            <th class="px-4 py-2">NoBall</th>
+                            <th class="px-4 py-2">Type</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for d in tapeball_deliveries %}
+                        <tr class="border-b border-slate-200 dark:border-zink-700">
+                            <td class="px-4 py-2">{{ d.Over }}</td>
+                            <td class="px-4 py-2">{{ d.Ball }}</td>
+                            <td class="px-4 py-2">{{ d.Batter }}</td>
+                            <td class="px-4 py-2">{{ d.Bowler }}</td>
+                            <td class="px-4 py-2">{{ d.Runs }}</td>
+                            <td class="px-4 py-2">{{ d.IsWicket }}</td>
+                            <td class="px-4 py-2">{{ d.Wide }}</td>
+                            <td class="px-4 py-2">{{ d.NoBall }}</td>
+                            <td class="px-4 py-2">{{ d.DeliveryType }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+                <div class="text-slate-500 dark:text-zink-300">No Tape Ball deliveries available for the selected match and team.</div>
+            {% endif %}
+        </div>
+        <div id="fiftyTab" class="mt-4" style="display:none;">
+            {% if fifty_error %}
+                <div class="text-red-400 bg-red-900/10 p-3 rounded">Error: {{ fifty_error }}</div>
+            {% elif fifty_deliveries and fifty_deliveries|length > 0 %}
+            <div class="mb-4">
+                <strong>50-50 Over Summary:</strong>
+                <span class="ml-3">Runs: {{ fifty_summary.Runs }}</span>
+                <span class="ml-3">Wkts: {{ fifty_summary.Wkts }}</span>
+                <span class="ml-3">Balls: {{ fifty_summary.Balls }}</span>
+                <span class="ml-3">FF Target: {{ fifty_summary.FFTarget if fifty_summary.FFTarget is not none else 'N/A' }}</span>
+            </div>
+            <div class="overflow-x-auto rounded-md">
+                <table class="min-w-full text-sm text-left border border-slate-300 dark:border-zink-600">
+                    <thead class="bg-custom-100 dark:bg-zink-800">
+                        <tr>
+                            <th class="px-4 py-2">Over</th>
+                            <th class="px-4 py-2">Ball</th>
+                            <th class="px-4 py-2">Batter</th>
+                            <th class="px-4 py-2">Bowler</th>
+                            <th class="px-4 py-2">Runs</th>
+                            <th class="px-4 py-2">Wicket</th>
+                            <th class="px-4 py-2">Wide</th>
+                            <th class="px-4 py-2">NoBall</th>
+                            <th class="px-4 py-2">Type</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for d in fifty_deliveries %}
+                        <tr class="border-b border-slate-200 dark:border-zink-700">
+                            <td class="px-4 py-2">{{ d.Over }}</td>
+                            <td class="px-4 py-2">{{ d.Ball }}</td>
+                            <td class="px-4 py-2">{{ d.Batter }}</td>
+                            <td class="px-4 py-2">{{ d.Bowler }}</td>
+                            <td class="px-4 py-2">{{ d.Runs }}</td>
+                            <td class="px-4 py-2">{{ d.IsWicket }}</td>
+                            <td class="px-4 py-2">{{ d.Wide }}</td>
+                            <td class="px-4 py-2">{{ d.NoBall }}</td>
+                            <td class="px-4 py-2">{{ d.DeliveryType }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+                <div class="text-slate-500 dark:text-zink-300">No 50-50 over deliveries available for the selected match and team.</div>
+            {% endif %}
+        </div>
+    </div>
+
+    
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var toggleBtn = document.getElementById('toggle-filter-btn');
+    var filterSection = document.getElementById('filter-section');
+    var filterArrow = document.getElementById('filter-arrow');
+    toggleBtn.addEventListener('click', function() {
+        if (filterSection.style.display === 'none') {
+            filterSection.style.display = '';
+            filterArrow.style.transform = '';
+        } else {
+            filterSection.style.display = 'none';
+            filterArrow.style.transform = 'rotate(180deg)';
+        }
+    });
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const tabButtons = document.querySelectorAll('.report-tab-btn');
+    const tabs = {
+        powerplay: document.getElementById('powerplayTab'),
+        tapeball: document.getElementById('tapeballTab'),
+        fifty: document.getElementById('fiftyTab')
+    };
+
+    function showTab(name) {
+        Object.keys(tabs).forEach(k => {
+            const el = tabs[k];
+            if (!el) return;
+            el.style.display = (k === name) ? '' : 'none';
+        });
+
+        tabButtons.forEach(btn => {
+            const isActive = btn.getAttribute('data-tab') === name;
+            btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+
+            // Toggle visual classes for active/inactive states
+            if (isActive) {
+                btn.classList.add('active');
+                btn.classList.remove('text-slate-500');
+                btn.classList.remove('border-transparent');
+                btn.classList.add('text-custom-600');
+                btn.classList.add('border-custom-500');
+            } else {
+                btn.classList.remove('active');
+                btn.classList.remove('text-custom-600');
+                btn.classList.remove('border-custom-500');
+                btn.classList.add('text-slate-500');
+                btn.classList.add('border-transparent');
+            }
+        });
+    }
+
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => showTab(btn.getAttribute('data-tab')));
+        btn.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                btn.click();
+            }
+        });
+    });
+
+    // Initialize: find button with .active or default to powerplay
+    const activeBtn = document.querySelector('.report-tab-btn.active') || document.querySelector('.report-tab-btn[data-tab="powerplay"]');
+    const initial = activeBtn ? activeBtn.getAttribute('data-tab') : 'powerplay';
+    showTab(initial);
+});
+</script>
+{% endblock %}

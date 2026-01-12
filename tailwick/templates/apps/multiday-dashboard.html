@@ -1,0 +1,134 @@
+{% extends "partials/base.html" %}
+{% block title %}Multiday Dashboard{% endblock title %}
+
+{% block content %}
+<div class="grid xl:grid-cols-12 grid-cols-1 gap-5">
+  <!-- Header -->
+  <div class="xl:col-span-12">
+    <div class="card">
+      <div class="card-body">
+        <div class="flex flex-wrap items-center justify-between">
+          <div>
+            {% if match_header %}
+              <h5 class="text-lg font-semibold">
+                {{ match_header.MatchName or "Multi-day Match Dashboard" }}
+              </h5>
+              <p class="text-slate-600 dark:text-zink-100">
+                {{ match_header.DaySessionText or "" }}
+              </p>
+              <p class="text-slate-600 dark:text-zink-100">
+                {{ match_header.GroundName or "" }}
+              </p>
+            {% else %}
+              <h5 class="text-lg font-semibold">Multi-day Match Dashboard</h5>
+              <p class="text-slate-600 dark:text-zink-100">
+                Select a match to view details
+              </p>
+            {% endif %}
+          </div>
+          <div class="px-3 py-1 rounded-md bg-custom-500 text-white">
+            {{ match_header.match_status or "Status: Pending" }}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if match_header %}
+  <!-- 1️⃣ Innings Worm -->
+  <div class="xl:col-span-6">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-4 text-15">Innings Worm (Cumulative Runs)</h6>
+        <div id="chart_worm" class="apex-charts" dir="ltr"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2️⃣ Runs & Wickets by Day -->
+  <div class="xl:col-span-6">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-4 text-15">Runs & Wickets by Day</h6>
+        <div id="chart_day_runs_wkts" class="apex-charts" dir="ltr"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3️⃣ Session Timeline -->
+  <div class="xl:col-span-12">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-4 text-15">Session Timeline by Innings</h6>
+        <div id="chart_session_timeline" class="apex-charts" dir="ltr"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4️⃣ Scoring Split -->
+  <div class="xl:col-span-12">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-4 text-15">Scoring Split by Day (%, Innings Combined)</h6>
+        <div id="chart_scoring_split" class="apex-charts" dir="ltr"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5️⃣ Bowler Workloads -->
+  <div class="xl:col-span-6">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-4 text-15">Top Bowlers — Overs by Day</h6>
+        <div id="chart_bowler_workload" class="apex-charts" dir="ltr"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6️⃣ Over Pressure -->
+  <div class="xl:col-span-6">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-4 text-15">Over Pressure (x=Over, y=Runs in Over, size=Wkts)</h6>
+        <div id="chart_over_pressure" class="apex-charts" dir="ltr"></div>
+      </div>
+    </div>
+  </div>
+
+  {% else %}
+  <!-- 🚫 Fallback when no match selected -->
+  <div class="xl:col-span-12">
+    <div class="card">
+      <div class="card-body text-center py-12">
+        <h5 class="text-lg font-semibold mb-2">No Match Selected</h5>
+        <p class="text-slate-600 dark:text-zink-100 mb-4">
+          Please select a tournament, team, and match to load the Multi-day Dashboard.
+        </p>
+        <a href="{{ url_for('apps.multiday_dashboard') }}" class="btn bg-custom-500 text-white">
+          Back to Selection
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock content %}
+
+{% block extra_content %}
+<script src="{{ url_for('static', filename='libs/apexcharts/apexcharts.min.js') }}"></script>
+
+{% if match_header %}
+<script>
+  // ✅ Setup match name and JSON endpoint for charts
+  const matchName = "{{ match_header.MatchName | default('', true) }}";
+  const dataUrl = "{{ url_for('apps.multiday_dashboard_json', match_name=match_header.MatchName | default('', true)) }}";
+  console.log("📊 Using dataUrl:", dataUrl);
+
+  // Make config available globally
+  window.MULTIDAY_DASHBOARD_CONFIG = { matchName, dataUrl };
+</script>
+
+<!-- ✅ Include chart initialization script -->
+<script src="{{ url_for('static', filename='js/pages/multiday-dashboard.init.js') }}"></script>
+{% endif %}
+{% endblock extra_content %}

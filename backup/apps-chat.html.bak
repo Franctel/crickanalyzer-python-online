@@ -1,0 +1,651 @@
+{% extends 'partials/base.html' %}
+{% block title %}Filters{% endblock title %}
+
+{% block content %}
+<div class="order-6 col-span-12 2xl:order-1 card 2xl:col-span-12">
+    <div class="card-body">
+        <form method="POST">
+            <h5 class="text-16 mb-4">Advanced Match Filters</h5>
+
+            <!-- Row 1: Tournament, Team, Matches -->
+            <div class="flex flex-col gap-3 md:flex-row md:items-center">
+                <!-- Tournament -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="tournament" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Tournament</label>
+                    <select id="tournament" name="tournament" onchange="this.form.submit()" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <option value="" disabled {{ 'selected' if not request.form.get('tournament') else '' }}>Select Tournament</option>
+                        {% for t in tournaments %}
+                        <option value="{{ t.value }}" {% if request.form.get('tournament') and request.form.get('tournament')|int == t.value %}selected{% endif %}>{{ t.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Team -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="team" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Team</label>
+                    <select id="team" name="team" onchange="this.form.submit()" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <option disabled {% if not request.form.get('team') %}selected{% endif %}>Select Team</option>
+                        {% for team in teams %}
+                        <option value="{{ team }}" {% if team == request.form.get('team') %}selected{% endif %}>{{ team }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Matches -->
+                <div class="relative w-full md:w-1/2">
+                    <label for="matches" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Matches</label>
+                    <select id="matches" name="matches[]" multiple onchange="this.form.submit()" data-choices data-choices-removeItem class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        {% for m in matches %}
+                        <option value="{{ m }}" {% if m in request.form.getlist('matches[]') %}selected{% endif %}>{{ m }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Format-Specific Filters -->
+            {% if match_format in ['t20', 't20i', 'odi', 'one day', 'one day international'] %}
+            <!-- ⚾ LIMITED OVERS FILTERS -->
+            <div class="flex flex-col gap-3 mt-4 md:flex-row md:items-center">
+                <!-- Inning (moved up) -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="inning" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Inning</label>
+                    <select id="inning" name="inning" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <option disabled {% if not request.form.get('inning') %}selected{% endif %}>Select Inning</option>
+                        {% for inn in innings %}
+                        <option value="{{ inn }}" {% if request.form.get('inning') == inn %}selected{% endif %}>{{ inn }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Phase -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="phase" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Phase</label>
+                    <select id="phase" name="phase" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <option disabled {% if not request.form.get('phase') %}selected{% endif %}>Select Phase</option>
+                        <option value="Powerplay" {% if request.form.get('phase') == 'Powerplay' %}selected{% endif %}>Powerplay</option>
+                        <option value="Middle" {% if request.form.get('phase') == 'Middle' %}selected{% endif %}>Middle Overs</option>
+                        <option value="Death" {% if request.form.get('phase') == 'Death' %}selected{% endif %}>Death Overs</option>
+                    </select>
+                </div>
+
+                <!-- From Over -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="from_over" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">From Over</label>
+                    <input type="number" id="from_over" name="from_over" value="{{ from_over or '' }}" min="1" max="50" class="form-input w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"/>
+                </div>
+
+                <!-- To Over -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="to_over" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">To Over</label>
+                    <input type="number" id="to_over" name="to_over" value="{{ to_over or '' }}" min="1" max="50" class="form-input w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"/>
+                </div>
+            </div>
+            {% else %}
+            <!-- 🕰 MULTIDAY FILTERS -->
+            <div class="flex flex-col gap-3 mt-4 md:flex-row md:items-center">
+                <!-- Day -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="day" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Day</label>
+                    <select id="day" name="day" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <option disabled {% if not request.form.get('day') %}selected{% endif %}>Select Day</option>
+                        {% for d in days %}
+                        <option value="{{ d }}" {% if request.form.get('day') == d %}selected{% endif %}>{{ d }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Inning -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="inning" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Inning</label>
+                    <select id="inning" name="inning" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <option disabled {% if not request.form.get('inning') %}selected{% endif %}>Select Inning</option>
+                        {% for inn in innings %}
+                        <option value="{{ inn }}" {% if request.form.get('inning') == inn %}selected{% endif %}>{{ inn }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Session -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="session" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Session</label>
+                    <select id="session" name="session" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <option disabled {% if not request.form.get('session') %}selected{% endif %}>Select Session</option>
+                        {% for s in sessions %}
+                        <option value="{{ s }}" {% if request.form.get('session') == s %}selected{% endif %}>{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Row 3: Player and Type Filters -->
+            <div class="flex flex-col gap-3 mt-4 md:flex-row md:items-center">
+                <!-- Type -->
+                <div class="relative w-full md:w-1/4">
+                    <label class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Type</label>
+                    <div class="flex gap-4 mt-1">
+                        <label class="inline-flex items-center">
+                            <input type="radio" name="type" value="batter" class="form-radio text-custom-500"
+                                onchange="this.form.submit()" {% if request.form.get('type', 'batter') == 'batter' %}checked{% endif %}>
+                            <span class="ml-2 text-slate-700 dark:text-zink-100">Batters vs Bowlers</span>
+                        </label>
+                        <label class="inline-flex items-center">
+                            <input type="radio" name="type" value="bowler" class="form-radio text-custom-500"
+                                onchange="this.form.submit()" {% if request.form.get('type') == 'bowler' %}checked{% endif %}>
+                            <span class="ml-2 text-slate-700 dark:text-zink-100">Bowlers vs Batters</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Dynamic Dropdown Swap Based on Type -->
+                {% if request.form.get('type', 'batter') == 'batter' %}
+                    <!-- Batters Left -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="batters" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Batters</label>
+                        <select id="batters" name="batters[]" multiple data-choices data-choices-removeItem class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            {% for p in batters %}
+                            <option value="{{ p }}" {% if p in request.form.getlist('batters[]') %}selected{% endif %}>{{ p }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- VS -->
+                    <div class="flex items-center justify-center w-full md:w-1/12 text-center text-xl font-semibold text-zinc-600 dark:text-zinc-200">
+                        VS
+                    </div>
+
+                    <!-- Bowlers Right -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="bowlers" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Bowlers</label>
+                        <select id="bowlers" name="bowlers[]" multiple data-choices data-choices-removeItem class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            {% for p in bowlers %}
+                            <option value="{{ p }}" {% if p in request.form.getlist('bowlers[]') %}selected{% endif %}>{{ p }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                {% else %}
+                    <!-- Bowlers Left -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="bowlers" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Bowlers</label>
+                        <select id="bowlers" name="bowlers[]" multiple data-choices data-choices-removeItem class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            {% for p in bowlers %}
+                            <option value="{{ p }}" {% if p in request.form.getlist('bowlers[]') %}selected{% endif %}>{{ p }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- VS -->
+                    <div class="flex items-center justify-center w-full md:w-1/12 text-center text-xl font-semibold text-zinc-600 dark:text-zinc-200">
+                        VS
+                    </div>
+
+                    <!-- Batters Right -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="batters" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Batters</label>
+                        <select id="batters" name="batters[]" multiple data-choices data-choices-removeItem class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            {% for p in batters %}
+                            <option value="{{ p }}" {% if p in request.form.getlist('batters[]') %}selected{% endif %}>{{ p }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                {% endif %}
+
+                {% if match_format in ['t20', 't20i', 'odi', 'one day', 'one day international'] %}
+                <!-- Ball Phase (only for limited overs) -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="ball_phase" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Ball Phase</label>
+                    <select id="ball_phase" name="ball_phase" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <option disabled {% if not selected_ball_phase %}selected{% endif %}>Ball Phase</option>
+                        <option value="First 10" {% if selected_ball_phase == 'First 10' %}selected{% endif %}>First 10</option>
+                        <option value="Middle Balls" {% if selected_ball_phase == 'Middle Balls' %}selected{% endif %}>Middle Balls</option>
+                        <option value="Last 10" {% if selected_ball_phase == 'Last 10' %}selected{% endif %}>Last 10</option>
+                    </select>
+                </div>
+                {% endif %}
+
+                <!-- Submit Button -->
+                <div class="w-full md:w-auto mt-4 md:mt-6">
+                    <button type="submit" class="px-4 py-2 btn bg-custom-500 text-white hover:bg-custom-600 focus:ring focus:ring-custom-200 dark:bg-custom-400 dark:hover:bg-custom-500">
+                        Generate
+                    </button>
+                </div>
+
+            </div>
+
+        </form>
+    </div>
+</div>
+
+<!-- Tabs Strip -->
+<div class="mt-6 border-b border-gray-200 dark:border-zink-600">
+    <ul class="flex flex-wrap -mb-px text-sm font-medium text-center" role="tablist">
+        <li class="mr-2">
+            <button id="tab-players" type="button" class="inline-block px-4 py-2 text-custom-600 border-b-2 border-custom-500 rounded-t-lg active dark:text-custom-300 dark:border-custom-400"
+                onclick="switchTab('players')">
+                Player Vs Player
+            </button>
+        </li>
+        <li class="mr-2">
+            <button id="tab-ballbyball" type="button" class="inline-block px-4 py-2 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                onclick="switchTab('ballbyball')">
+                Ball by Ball
+            </button>
+        </li>
+        <li>
+            <button id="tab-length" type="button" class="inline-block px-4 py-2 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                onclick="switchTab('length')">
+                Line & Length
+            </button>
+        </li>
+    </ul>
+</div>
+
+<!-- Tab Content Containers -->
+<div id="tab-content-players" class="mt-4">
+
+    {% if selected_type == "batter" %}
+        {% if 'No Data' in kpi_tables %}
+            <div class="col-span-12 card mt-6" id="no-batter-kpi">
+                <div class="card-body">
+                    <p class="text-center text-slate-600 dark:text-zink-200">No Batter KPI data available.</p>
+                </div>
+            </div>
+        {% else %}
+            {% for batter, table_html in kpi_tables.items() %}
+                <div class="col-span-12 card mt-6" id="batter-card-{{ loop.index }}">
+                    <!-- <div class="card-header px-4 pt-4">
+                        <h3 class="text-lg font-semibold text-gray-800 dark:text-white">{{ batter }}</h3>
+                    </div> -->
+                    <div class="card-body pt-0">
+
+                        <!-- KPI Table -->
+                        <div class="overflow-x-auto rounded-md border border-gray-200 dark:border-zink-700 p-3 mb-4">
+                            <!-- <h4 class="font-medium text-base mb-2 text-slate-700 dark:text-zink-200">Match-wise Performance</h4> -->
+                            {{ table_html | safe }}
+                        </div>
+
+                        <!-- Total Summary Table -->
+                        {% if summary_tables and batter in summary_tables %}
+                            <div class="overflow-x-auto rounded-md border border-gray-200 dark:border-zink-700 p-3">
+                                <h4 class="font-medium text-base mb-2 text-slate-700 dark:text-zink-200">Total Performance (All Matches)</h4>
+                                {{ summary_tables[batter] | safe }}
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% endif %}
+
+    {% elif selected_type == "bowler" %}
+        {% if 'No Data' in kpi_tables %}
+            <div class="col-span-12 card mt-6" id="no-bowler-kpi">
+                <div class="card-body">
+                    <p class="text-center text-slate-600 dark:text-zink-200">No Bowler KPI data available.</p>
+                </div>
+            </div>
+        {% else %}
+            {% for bowler, table_html in kpi_tables.items() %}
+                <div class="col-span-12 card mt-6" id="bowler-card-{{ loop.index }}">
+                    <!-- <div class="card-header px-4 pt-4">
+                        <h3 class="text-lg font-semibold text-gray-800 dark:text-white">{{ bowler }}</h3>
+                    </div> -->
+                    <div class="card-body pt-0">
+
+                        <!-- KPI Table -->
+                        <div class="overflow-x-auto rounded-md border border-gray-200 dark:border-zink-700 p-3 mb-4">
+                            <!-- <h4 class="font-medium text-base mb-2 text-slate-700 dark:text-zink-200">Match-wise Performance</h4> -->
+                            {{ table_html | safe }}
+                        </div>
+
+                        <!-- Total Summary Table -->
+                        {% if summary_tables and bowler in summary_tables %}
+                            <div class="overflow-x-auto rounded-md border border-gray-200 dark:border-zink-700 p-3">
+                                <h4 class="font-medium text-base mb-2 text-slate-700 dark:text-zink-200">Total Performance (All Matches)</h4>
+                                {{ summary_tables[batter] | safe }}
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% endif %}
+
+    {% else %}
+        <div class="col-span-12 card mt-6" id="no-kpi-generic">
+            <div class="card-body">
+                <p class="text-center text-slate-600 dark:text-zink-200">No KPI data to display.</p>
+            </div>
+        </div>
+    {% endif %}
+
+</div>
+
+
+
+
+
+<div id="tab-content-ballbyball" class="hidden mt-4">
+    <div class="col-span-12 card">
+        <div class="card-body">
+            <!-- Filter Buttons -->
+            <div id="ball-by-ball-filters" class="flex flex-wrap gap-2 mb-4">
+                <button data-filter="all" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-custom-500 text-white">All</button>
+                <button data-filter="1" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">1's</button>
+                <button data-filter="2" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">2's</button>
+                <button data-filter="4" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">4's</button>
+                <button data-filter="6" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">6's</button>
+                <button data-filter="wickets" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Wickets</button>
+                <button data-filter="beaten" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Beaten</button>
+                <button data-filter="uncomfortable" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Uncomfortable</button>
+                <button data-filter="last10" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Last 10 Balls</button>
+                <button data-filter="last20" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Last 20 Balls</button>
+                <button data-filter="play-all" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-green-500 text-white">Play All</button>
+            </div>
+
+
+            <!-- Ball by Ball Container -->
+            <div id="ball-by-ball-container" class="space-y-2">
+                <!-- Content will be injected by JavaScript -->
+            </div>
+
+            <script id="ball-data" type="application/json">
+                {% if ball_by_ball_details %}{{ ball_by_ball_details | tojson | safe }}{% else %}[]{% endif %}
+            </script>
+
+        </div>
+    </div>
+</div>
+
+
+
+
+
+<div id="tab-content-length" class="hidden mt-4">
+    <div class="col-span-12 card">
+        <div class="card-body">
+            <p class="text-slate-600 dark:text-zink-200">
+                Showing Line & Length insights...
+            </p>
+        </div>
+    </div>
+</div>
+
+
+<!-- JS Tab Switch Logic -->
+<script>
+    function switchTab(tab) {
+        const tabs = ['players', 'ballbyball', 'length'];
+        tabs.forEach(t => {
+            document.getElementById('tab-' + t).classList.remove('text-custom-600', 'border-custom-500', 'dark:text-custom-300', 'dark:border-custom-400', 'active');
+            document.getElementById('tab-' + t).classList.add('text-slate-500', 'border-transparent');
+
+            document.getElementById('tab-content-' + t).classList.add('hidden');
+        });
+
+        document.getElementById('tab-' + tab).classList.remove('text-slate-500', 'border-transparent');
+        document.getElementById('tab-' + tab).classList.add('text-custom-600', 'border-custom-500', 'dark:text-custom-300', 'dark:border-custom-400', 'active');
+
+        document.getElementById('tab-content-' + tab).classList.remove('hidden');
+    }
+
+    // Ball-by-Ball Filtering Logic
+    document.addEventListener('DOMContentLoaded', function () {
+        const tailwindCssUrl = "{{ url_for('static', filename='css/tailwind.css') }}";
+        const container = document.getElementById('ball-by-ball-container');
+        const filterButtonsContainer = document.getElementById('ball-by-ball-filters');
+
+        const allBallsData = document.getElementById('ball-data')?.textContent;
+        const allBalls = JSON.parse(allBallsData || '[]');
+        let currentFilteredBalls = [];
+
+
+
+        function renderBalls(ballsToRender) {
+            container.innerHTML = ''; // Clear existing content
+            currentFilteredBalls = ballsToRender;
+
+            if (!ballsToRender || ballsToRender.length === 0) {
+                container.innerHTML = '<p class="text-center text-slate-600 dark:text-zink-200">No matching ball-by-ball data available.</p>';
+                return;
+            }
+
+
+            ballsToRender.forEach(ball => {
+                const wicketClass = ball.scrM_IsWicket == 1 ? 'bg-red-500' : (ball.scrM_IsBoundry == 1 || ball.scrM_IsSixer == 1 ? 'bg-custom-500' : 'bg-slate-800 text-white');
+
+                const lineLength = (ball.scrM_Line && ball.scrM_Length && String(ball.scrM_Line).toLowerCase().trim() !== 'nan' && String(ball.scrM_Length).toLowerCase().trim() !== 'nan') ? `Line/Length: ${ball.scrM_Line} / ${ball.scrM_Length}` : '';
+
+                let runsHtml = `
+                    <div class="w-20 mx-auto text-center text-white font-semibold rounded-full py-1 text-lg ${wicketClass}">
+                        ${ball.scrM_BatsmanRuns}
+                    </div>
+                `;
+                
+                let videoUrl = null;
+                for (let i = 1; i <= 6; i++) {
+                    if (ball['scrM_Video' + i + 'URL']) {
+                        videoUrl = ball['scrM_Video' + i + 'URL'];
+                        break;
+                    }
+                }
+
+                if (videoUrl) {
+                    runsHtml = `
+                        <a href="/video?url=${videoUrl}" target="_blank">
+                            ${runsHtml}
+                        </a>
+                    `;
+                }
+
+
+
+                const ballHtml = `
+                <div class="bg-custom-50 dark:bg-zink-700 p-3 rounded-lg">
+                    <div class="flex justify-between items-center text-xs mb-2">
+                        <span class="font-normal text-slate-700 dark:text-zink-100">${ball.scrM_MatchName}</span>
+                        <span class="text-slate-500 dark:text-zink-300">Inn: ${ball.scrM_InningNo}</span>
+                    </div>
+                    <div class="flex items-start justify-between">
+                        <div class="flex-grow">
+                            <div class="flex items-center gap-4">
+                                <div class="bg-custom-500 text-white rounded-md px-3 py-1 text-sm font-semibold">
+                                    Over ${ball.scrM_OverNo}.${ball.scrM_DelNo}
+                                </div>
+                                <div class="text-sm flex-grow font-light">
+                                    <p class="font-normal text-slate-800 dark:text-zink-50">
+                                        ${ball.commentary || ''}
+                                    </p>
+
+                                    <div class="mt-2 border-t border-slate-200 dark:border-zink-600 pt-1">
+                                        <p class="text-slate-600 dark:text-zink-200">
+                                            ${lineLength}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ml-4 text-right flex-shrink-0 w-24">
+                            ${runsHtml}
+                        </div>
+                    </div>
+                </div>
+                `;
+                container.insertAdjacentHTML('beforeend', ballHtml);
+            });
+
+        }
+
+        if (filterButtonsContainer) {
+            filterButtonsContainer.addEventListener('click', function(event) {
+                const targetButton = event.target.closest('button');
+                if (!targetButton) return;
+
+                const filterType = targetButton.getAttribute('data-filter');
+                let filteredBalls = [];
+
+                if (filterType === 'play-all') {
+                    const videoUrls = currentFilteredBalls
+                        .map(ball => {
+                            for (let i = 1; i <= 6; i++) {
+                                if (ball['scrM_Video' + i + 'URL']) {
+                                    return ball['scrM_Video' + i + 'URL'];
+                                }
+                            }
+                            return null;
+                        })
+                        .filter(url => url);
+
+                    if (videoUrls.length > 0) {
+                        const playlistWindow = window.open("", "_blank");
+                        playlistWindow.document.write(`
+                            <html>
+                                <head>
+                                    <title>Playlist</title>
+                                    <link rel="stylesheet" href="${tailwindCssUrl}">
+                                </head>
+                                <body class="bg-black text-white flex flex-col h-screen overflow-hidden">
+                                    <div class="flex-grow bg-black flex items-center justify-center p-4">
+                                        <video id="playlist-video" controls autoplay muted playsinline class="max-w-full max-h-full"></video>
+                                    </div>
+                                    <div class="flex-shrink-0 bg-gray-900 p-3 flex items-center justify-center gap-x-4">
+                                        <button id="prev-btn" class="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600 disabled:opacity-50">Previous</button>
+                                        <button id="frame-prev" class="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600">-1 Frame</button>
+                                        <button id="frame-next" class="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600">+1 Frame</button>
+                                        <button id="next-btn" class="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600 disabled:opacity-50">Next</button>
+                                        <button onclick="window.close()" class="px-4 py-2 bg-red-700 text-white rounded-md hover:bg-red-600">Close</button>
+                                    </div>
+                                    <script>
+                                        document.addEventListener('DOMContentLoaded', () => {
+                                            const videoUrls = ${JSON.stringify(videoUrls)};
+                                            let currentVideoIndex = 0;
+                                            const videoElement = document.getElementById('playlist-video');
+                                            const prevBtn = document.getElementById('prev-btn');
+                                            const nextBtn = document.getElementById('next-btn');
+                                            const framePrevBtn = document.getElementById('frame-prev');
+                                            const frameNextBtn = document.getElementById('frame-next');
+                                            const frameTime = 1 / 30; // Assuming 30fps
+
+                                            function updateButtons() {
+                                                if (prevBtn) prevBtn.disabled = currentVideoIndex === 0;
+                                                if (nextBtn) nextBtn.disabled = currentVideoIndex === videoUrls.length - 1;
+                                            }
+
+                                            function playVideo(index) {
+                                                if (index >= 0 && index < videoUrls.length) {
+                                                    currentVideoIndex = index;
+                                                    videoElement.src = videoUrls[index];
+                                                    videoElement.load();
+                                                    videoElement.play();
+                                                    updateButtons();
+                                                }
+                                            }
+
+                                            function playNext() {
+                                                playVideo(currentVideoIndex + 1);
+                                            }
+
+                                            function playPrevious() {
+                                                playVideo(currentVideoIndex - 1);
+                                            }
+                                            
+                                            videoElement.addEventListener('ended', () => {
+                                                if (currentVideoIndex < videoUrls.length - 1) {
+                                                    playNext();
+                                                } else {
+                                                    window.close();
+                                                }
+                                            });
+
+                                            if (prevBtn) prevBtn.addEventListener('click', playPrevious);
+                                            if (nextBtn) nextBtn.addEventListener('click', playNext);
+                                            
+                                            if(framePrevBtn) {
+                                                framePrevBtn.addEventListener('click', () => {
+                                                    if (!videoElement.paused) videoElement.pause();
+                                                    videoElement.currentTime = Math.max(0, videoElement.currentTime - frameTime);
+                                                });
+                                            }
+                                            
+                                            if(frameNextBtn) {
+                                                frameNextBtn.addEventListener('click', () => {
+                                                    if (!videoElement.paused) videoElement.pause();
+                                                    videoElement.currentTime += frameTime;
+                                                });
+                                            }
+
+                                            playVideo(currentVideoIndex);
+                                        });
+                                    <\/script>
+                                </body>
+                            </html>
+                        `);
+                        playlistWindow.document.close();
+
+                    } else {
+                        alert("No videos available for the current filter.");
+                    }
+                    return;
+                }
+                
+                switch (filterType) {
+                    case 'all':
+                        filteredBalls = allBalls;
+                        break;
+                    case '1':
+                        filteredBalls = allBalls.filter(b => b.scrM_BatsmanRuns === 1);
+                        break;
+                    case '2':
+                        filteredBalls = allBalls.filter(b => b.scrM_BatsmanRuns === 2);
+                        break;
+                    case '4':
+                        filteredBalls = allBalls.filter(b => b.scrM_BatsmanRuns === 4);
+                        break;
+                    case '6':
+                        filteredBalls = allBalls.filter(b => b.scrM_BatsmanRuns === 6);
+                        break;
+                    case 'wickets':
+                        filteredBalls = allBalls.filter(b => b.scrM_IsWicket == 1);
+                        break;
+                    case 'beaten':
+                        filteredBalls = allBalls.filter(b => b.scrM_IsBeaten == 1);
+                        break;
+                    case 'uncomfortable':
+                        filteredBalls = allBalls.filter(b => b.scrM_IsUncomfort == 1);
+                        break;
+                    case 'last10':
+                        filteredBalls = allBalls.slice(-10);
+                        break;
+                    case 'last20':
+                        filteredBalls = allBalls.slice(-20);
+                        break;
+                }
+                
+                // Update active button style
+                if (targetButton.dataset.filter !== 'play-all') {
+                    filterButtonsContainer.querySelectorAll('.filter-btn').forEach(btn => {
+                        if(btn.dataset.filter !== 'play-all'){
+                            btn.classList.remove('bg-custom-500', 'text-white');
+                            btn.classList.add('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+                        }
+                    });
+                    targetButton.classList.add('bg-custom-500', 'text-white');
+                    targetButton.classList.remove('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+                }
+
+                renderBalls(filteredBalls);
+            });
+        }
+
+
+
+        // Initial render
+        if (allBalls && allBalls.length > 0) {
+            renderBalls(allBalls);
+        } else {
+            if (container) {
+                container.innerHTML = '<p class="text-center text-slate-600 dark:text-zink-200">No ball-by-ball data available.</p>';
+            }
+        }
+    });
+</script>
+
+{% endblock content %}

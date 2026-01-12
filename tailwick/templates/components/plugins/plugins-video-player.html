@@ -1,0 +1,42 @@
+{% extends 'partials/base.html' %}
+{% block title %}Video Player{% endblock title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{url_for('static' ,filename='libs/plyr/plyr.css')}}">
+{% endblock extra_css %}
+
+{% block content %}
+<div class="flex flex-col gap-2 py-4 md:flex-row md:items-center print:hidden">
+    <div class="grow">
+        <h5 class="text-16">Video Player</h5>
+    </div>
+    <ul class="flex items-center gap-2 text-sm font-normal shrink-0">
+        <li class="relative before:content-['\ea54'] before:font-remix ltr:before:-right-1 rtl:before:-left-1  before:absolute before:text-[18px] before:-top-[3px] ltr:pr-4 rtl:pl-4 before:text-slate-400 dark:text-zink-200">
+            <a href="#!" class="text-slate-400 dark:text-zink-200">Plugins</a>
+        </li>
+        <li class="text-slate-700 dark:text-zink-100">
+            Video Player
+        </li>
+    </ul>
+</div>
+<div>
+    <div class="grid grid-cols-1 gap-x-5 xl:grid-cols-2">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-4 text-gray-800 text-15 dark:text-white">Preview Video Player</h6>
+            
+                <div class="plyr__video-embed" id="player">
+                    <iframe src="https://www.youtube.com/embed/qYgogv4R8zg?si=_YxUDmc2fDgHyPae" allowfullscreen allowtransparency allow="autoplay"></iframe>
+                </div>
+            </div>
+        </div><!--end card-->
+    </div><!--end grid-->
+</div>
+</div>
+{% endblock content %}
+
+{% block extra_js %}
+<script src="{{url_for('static' ,filename='libs/plyr/plyr.min.js')}}"></script>
+
+<script src="{{url_for('static' ,filename='js/pages/plugins-video-player.init.js')}}"></script>
+{% endblock extra_js %}

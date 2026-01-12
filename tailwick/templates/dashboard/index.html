@@ -1,0 +1,14 @@
+{% extends 'partials/base.html' %}
+{% block title %}Ecommerce{% endblock title %}
+
+{% block content %}
+    {% include 'partials/content.html' %}
+{% endblock content %}
+
+{% block extra_js %}
+<!--apexchart js-->
+<script src="{{url_for('static' ,filename='libs/apexcharts/apexcharts.min.js')}}"></script>
+
+<!--dashboard ecommerce init js-->
+<script src="{{url_for('static' ,filename='js/pages/dashboards-ecommerce.init.js')}}"></script>
+{% endblock extra_js %}

@@ -1,0 +1,66 @@
+{% extends 'partials/base.html' %}
+{% block title %}Video{% endblock title %}
+
+{% block content %}
+<div class="flex flex-col gap-2 py-4 md:flex-row md:items-center print:hidden">
+    <div class="grow">
+        <h5 class="text-16">Video</h5>
+    </div>
+    <ul class="flex items-center gap-2 text-sm font-normal shrink-0">
+        <li class="relative before:content-['\ea54'] before:font-remix ltr:before:-right-1 rtl:before:-left-1  before:absolute before:text-[18px] before:-top-[3px] ltr:pr-4 rtl:pl-4 before:text-slate-400 dark:text-zink-200">
+            <a href="#!" class="text-slate-400 dark:text-zink-200">UI Elements</a>
+        </li>
+        <li class="text-slate-700 dark:text-zink-100">
+            Video
+        </li>
+    </ul>
+</div>            
+<div class="grid grid-cols-1 gap-x-4 xl:grid-cols-2">
+    <div>
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-4 text-15">Basic</h6>
+                <iframe class="w-full rounded-md aspect-video" src="https://www.youtube.com/embed/1y_kfWUCFDQ"></iframe>
+            </div>
+        </div><!--end card-->
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-4 text-15">Square</h6>
+                <iframe class="w-full rounded-md aspect-square" src="https://www.youtube.com/embed/1y_kfWUCFDQ"></iframe>
+            </div>
+        </div><!--end card-->
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-4 text-15">Video - 1/1</h6>
+                <iframe class="w-full rounded-md aspect-1/1" src="https://www.youtube.com/embed/1y_kfWUCFDQ"></iframe>
+            </div>
+        </div><!--end card-->
+    </div>
+    <div>
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-4 text-15">Auto</h6>
+                <iframe class="w-full rounded-md aspect-auto" src="https://www.youtube.com/embed/1y_kfWUCFDQ"></iframe>
+            </div>
+        </div><!--end card-->
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-4 text-15">Video - 4/3</h6>
+                <iframe class="w-full rounded-md aspect-4/3" src="https://www.youtube.com/embed/1y_kfWUCFDQ"></iframe>
+            </div>
+        </div><!--end card-->
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-4 text-15">Video - 16/9</h6>
+                <iframe class="w-full rounded-md aspect-16/9" src="https://www.youtube.com/embed/1y_kfWUCFDQ"></iframe>
+            </div>
+        </div><!--end card-->
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-4 text-15">Video - 16/9</h6>
+                <iframe class="w-full rounded-md aspect-21/9" src="https://www.youtube.com/embed/1y_kfWUCFDQ"></iframe>
+            </div>
+        </div><!--end card-->
+    </div>
+</div>
+{% endblock content %}

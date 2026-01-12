@@ -1,0 +1,116 @@
+{% extends 'partials/base.html' %}
+{% block title %}Lightbox{% endblock title %}
+
+{% block content %}
+<div class="flex flex-col gap-2 py-4 md:flex-row md:items-center print:hidden">
+    <div class="grow">
+        <h5 class="text-16">Lightbox</h5>
+    </div>
+    <ul class="flex items-center gap-2 text-sm font-normal shrink-0">
+        <li class="relative before:content-['\ea54'] before:font-remix ltr:before:-right-1 rtl:before:-left-1  before:absolute before:text-[18px] before:-top-[3px] ltr:pr-4 rtl:pl-4 before:text-slate-400 dark:text-zink-200">
+            <a href="#!" class="text-slate-400 dark:text-zink-200">Plugins</a>
+        </li>
+        <li class="text-slate-700 dark:text-zink-100">
+            Lightbox
+        </li>
+    </ul>
+</div>
+<div>
+    <div class="grid grid-cols-1 gap-x-5 xl:grid-cols-1">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-4 text-15">Simple Image Gallery</h6>
+                
+                <div class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                        <a href="assets/images/small/img-2.jpg" class="glightbox">
+                            <img src="{{url_for('static' ,filename='images/small/img-2.jpg')}}" alt="image" class="rounded-md">
+                        </a>
+                    </div>
+                    <div>
+                        <a href="assets/images/small/img-3.jpg" class="glightbox">
+                            <img src="{{url_for('static' ,filename='images/small/img-3.jpg')}}" alt="image" class="rounded-md">
+                        </a>
+                    </div>
+                    <div>
+                        <a href="assets/images/small/img-4.jpg" class="glightbox">
+                            <img src="{{url_for('static' ,filename='images/small/img-4.jpg')}}" alt="image" class="rounded-md">
+                        </a>
+                    </div>
+                    <div>
+                        <a href="assets/images/small/img-5.jpg" class="glightbox">
+                            <img src="{{url_for('static' ,filename='images/small/img-5.jpg')}}" alt="image" class="rounded-md">
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div><!--end card-->
+
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-4 text-15">Images with Description</h6>
+        
+                <div class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                        <a href="assets/images/small/img-10.jpg" class="description" data-glightbox="title:Description Bottom; description: You can set the position of the description <a href=&quot;http://google.com&quot;>with a link to Google</a>">
+                            <img src="{{url_for('static' ,filename='images/small/img-10.jpg')}}" alt="image" class="rounded-md">
+                        </a>
+                    </div>
+                    <div>
+                        <a href="assets/images/small/img-9.jpg" class="description" data-glightbox="title:Description Bottom; description: You can set the position of the description <a href=&quot;http://google.com&quot;>with a link to Google</a>">
+                            <img src="{{url_for('static' ,filename='images/small/img-9.jpg')}}" alt="image" class="rounded-md">
+                        </a>
+                    </div>
+                    <div>
+                        <a href="assets/images/small/img-8.jpg" class="description" data-glightbox="title:Description Bottom; description: You can set the position of the description <a href=&quot;http://google.com&quot;>with a link to Google</a>">
+                            <img src="{{url_for('static' ,filename='images/small/img-8.jpg')}}" alt="image" class="rounded-md">
+                        </a>
+                    </div>
+                    <div>
+                        <a href="assets/images/small/img-7.jpg" class="description" data-glightbox="title:Description Bottom; description: You can set the position of the description <a href=&quot;http://google.com&quot;>with a link to Google</a>">
+                            <img src="{{url_for('static' ,filename='images/small/img-7.jpg')}}" alt="image" class="rounded-md">
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div><!--end card-->
+
+        <div class="card">
+            <div class="card-body">
+                <h6 class="mb-4 text-15">Videos Gallery</h6>
+        
+                <div class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                        <a href="https://www.youtube.com/embed/qYgogv4R8zg?si=_YxUDmc2fDgHyPae" class="video">
+                            <img src="https://i.ytimg.com/vi/qYgogv4R8zg/hqdefault.jpg?sqp=-oaymwEcCPYBEIoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBcI9Cw0yBtGv_ashbS-ogqh1OGpQ" alt="image" class="object-cover w-full rounded-md h-30">
+                        </a>
+                    </div>
+                    <div>
+                        <a href="https://www.youtube.com/embed/waoOK5s9ypc?si=yzK5f339AF_hoXdn" class="video">
+                            <img src="https://i.ytimg.com/vi/waoOK5s9ypc/hqdefault.jpg?sqp=-oaymwEcCNACELwBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCkSGeAQ17_LFepTKdEByyVTZkeVw" alt="image" class="object-cover w-full rounded-md h-30">
+                        </a>
+                    </div>
+                    <div>
+                        <a href="https://www.youtube.com/embed/waoOK5s9ypc?si=yzK5f339AF_hoXdn" class="video">
+                            <img src="https://i.ytimg.com/vi/waoOK5s9ypc/hqdefault.jpg?sqp=-oaymwEcCNACELwBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCkSGeAQ17_LFepTKdEByyVTZkeVw" alt="image" class="object-cover w-full rounded-md h-30">
+                        </a>
+                    </div>
+                    <div>
+                        <a href="https://www.youtube.com/embed/TrftauE2Vyk?si=HRCFmq5956C01yB3" class="video">
+                            <img src="https://i.ytimg.com/vi/TrftauE2Vyk/hqdefault.jpg?sqp=-oaymwEcCNACELwBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCm6UjEfDC3R5dJik1gEW__HEnaAA" alt="image" class="object-cover w-full rounded-md h-30">
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div><!--end card-->
+        
+        
+    </div><!--end grid-->
+</div>
+{% endblock content %}
+
+{% block extra_content %}
+<script src="{{url_for('static' ,filename='libs/glightbox/js/glightbox.min.js')}}"></script>
+
+<script src="{{url_for('static' ,filename='js/pages/plugins-lightbox.init.js')}}"></script>
+{% endblock extra_content %}

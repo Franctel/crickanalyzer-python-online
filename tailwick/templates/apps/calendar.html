@@ -1,0 +1,324 @@
+{% extends "partials/base.html" %}
+
+{% block title %} STATS {% endblock %}
+
+{% block content %}
+
+<!-- 🔽 Filters Section -->
+<div class="order-6 col-span-12 2xl:order-1 card 2xl:col-span-12">
+  <div class="card-body">
+    <!-- Toggle Button -->
+    <button type="button" id="toggle-filter-btn"
+      class="flex items-center justify-between w-full px-4 py-2 mb-4 text-sm font-medium text-left text-white bg-custom-500 rounded-md hover:bg-custom-600 focus:outline-none focus-visible:ring focus-visible:ring-custom-500 focus-visible:ring-opacity-75">
+      <span>Filters</span>
+      <svg id="filter-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+        class="w-5 h-5 transition-transform duration-200">
+        <polyline points="6 9 12 15 18 9"></polyline>
+      </svg>
+    </button>
+
+    <!-- Filter Section -->
+    <div id="filter-section">
+      <form id="filter-form" method="POST" class="flex flex-col gap-3 md:flex-row md:items-end md:gap-4">
+
+        <!-- Tournament -->
+        <div class="relative w-full md:w-1/4">
+          <label for="tournament" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+            Tournament
+          </label>
+          <select id="tournament" name="tournament" onchange="this.form.submit()" 
+            class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+            <option value="" disabled {% if not selected_tournament %}selected{% endif %}>Select Tournament</option>
+            {% for t in tournaments %}
+            <option value="{{ t.value }}" {% if selected_tournament|int == t.value %}selected{% endif %}>
+              {{ t.label }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Team -->
+        <div class="relative w-full md:w-1/4">
+          <label for="team" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+            Team
+          </label>
+          <select id="team" name="team" onchange="this.form.submit()" 
+            class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+            <option value="" disabled {% if not selected_team %}selected{% endif %}>Select Team</option>
+            {% for team in teams %}
+            <option value="{{ team }}" {% if selected_team == team %}selected{% endif %}>{{ team }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Radio Buttons (Batting / Bowling) -->
+        <div class="flex flex-col gap-2 md:w-1/5 md:self-end mt-4">
+          <label class="inline-flex items-center">
+            <input type="radio" name="view_type" value="batting" class="form-radio text-custom-500"
+              {% if request.form.get('view_type', 'batting') == 'batting' %}checked{% endif %}
+              onchange="this.form.submit()">
+            <span class="ml-2 text-slate-700 dark:text-zink-100">Batting</span>
+          </label>
+
+          <label class="inline-flex items-center">
+            <input type="radio" name="view_type" value="bowling" class="form-radio text-custom-500"
+              {% if request.form.get('view_type') == 'bowling' %}checked{% endif %}
+              onchange="this.form.submit()">
+            <span class="ml-2 text-slate-700 dark:text-zink-100">Bowling</span>
+          </label>
+        </div>
+
+        <!-- Generate Button -->
+        <div class="relative w-full md:w-1/5">
+          <button type="submit"
+            class="h-[42px] px-6 btn bg-custom-500 text-white hover:bg-custom-600 focus:ring focus:ring-custom-200 dark:bg-custom-400 dark:hover:bg-custom-500 mt-6">
+            Generate
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Dynamic Tabs Section -->
+    <div id="dynamic-tabs" class="mt-6 border-b border-gray-200 dark:border-zink-600">
+      <ul id="tab-list" class="flex flex-wrap -mb-px text-sm font-medium text-center" role="tablist">
+        <!-- Tabs will be inserted dynamically -->
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ================= Batting Cards ================= -->
+{% if players and request.form.get('view_type', 'batting') == 'batting' %}
+  <div id="players-container" class="grid grid-cols-1 gap-6 mt-6">
+    {% for player in players %}
+      <div class="card bg-white dark:bg-zink-800 shadow-md rounded-lg player-card"
+           data-batter-skill="{{ player.batter_skill|default("")|upper }}"
+           data-runs="{{ player.runs }}"
+           data-strike-rate="{{ player.strike_rate }}"
+           data-average="{{ player.average }}"
+           data-fours="{{ player.fours }}"
+           data-sixes="{{ player.sixes }}">
+        <div class="card-body">
+          <h3 class="text-lg font-semibold mb-4">
+            {{ player.player_name }} ({{ player.team_short_name }})
+          </h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+              <thead class="bg-custom-100 dark:bg-custom-500/10">
+                <tr>
+                  <th class="px-2 py-1.5 text-center">Inn</th>
+                  <th class="px-2 py-1.5 text-center">Runs</th>
+                  <th class="px-2 py-1.5 text-center">Not Out</th>
+                  <th class="px-2 py-1.5 text-center">Balls</th>
+                  <th class="px-2 py-1.5 text-center">Dots</th>
+                  <th class="px-2 py-1.5 text-center">4s</th>
+                  <th class="px-2 py-1.5 text-center">6s</th>
+                  <th class="px-2 py-1.5 text-center">S.R.</th>
+                  <th class="px-2 py-1.5 text-center">Avg.</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="text-center">{{ player.innings }}</td>
+                  <td class="text-center">{{ player.runs }}</td>
+                  <td class="text-center">{{ player.not_outs }}</td>
+                  <td class="text-center">{{ player.balls }}</td>
+                  <td class="text-center">{{ player.dots }}</td>
+                  <td class="text-center">{{ player.fours }}</td>
+                  <td class="text-center">{{ player.sixes }}</td>
+                  <td class="text-center">{{ player.strike_rate }}</td>
+                  <td class="text-center">{{ player.average }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<!-- ================= Bowling Cards ================= -->
+{% if players and request.form.get('view_type') == 'bowling' %}
+  <div id="players-container" class="grid grid-cols-1 gap-6 mt-6">
+    {% for player in players %}
+      <div class="card bg-white dark:bg-zink-800 shadow-md rounded-lg player-card"
+           data-bowler-skill="{{ player.bowler_skill|default("")|upper }}"
+           data-wkts="{{ player.wkts }}"
+           data-eco="{{ player.eco }}"
+           data-strike-rate="{{ player.strike_rate }}"
+           data-average="{{ player.average }}"
+           data-dots="{{ player.dots }}">
+        <div class="card-body">
+          <h3 class="text-lg font-semibold mb-4">
+            {{ player.player_name }} ({{ player.team_short_name }})
+          </h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+              <thead class="bg-custom-100 dark:bg-custom-500/10">
+                <tr>
+                  <th class="px-2 py-1.5 text-center">Inn</th>
+                  <th class="px-2 py-1.5 text-center">Runs</th>
+                  <th class="px-2 py-1.5 text-center">Wkts</th>
+                  <th class="px-2 py-1.5 text-center">Overs</th>
+                  <th class="px-2 py-1.5 text-center">Dots</th>
+                  <th class="px-2 py-1.5 text-center">Eco.</th>
+                  <th class="px-2 py-1.5 text-center">S.R.</th>
+                  <th class="px-2 py-1.5 text-center">Avg.</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="text-center">{{ player.innings }}</td>
+                  <td class="text-center">{{ player.runs }}</td>
+                  <td class="text-center">{{ player.wkts }}</td>
+                  <td class="text-center">{{ player.overs }}</td>
+                  <td class="text-center">{{ player.dots }}</td>
+                  <td class="text-center">{{ player.eco }}</td>
+                  <td class="text-center">{{ player.strike_rate }}</td>
+                  <td class="text-center">{{ player.average }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% if not players %}
+  <div class="mt-6 text-center text-gray-500 dark:text-gray-300">
+    No players found for the selected filters.
+  </div>
+{% endif %}
+
+<!-- ================= JS ================= -->
+<script>
+document.getElementById("toggle-filter-btn").addEventListener("click", function() {
+  const section = document.getElementById("filter-section");
+  const arrow = document.getElementById("filter-arrow");
+  section.classList.toggle("hidden");
+  arrow.classList.toggle("rotate-180");
+});
+
+// Batting + Bowling Tabs
+const battingTabs = [
+  { id: "all", label: "All" },
+  { id: "rhb", label: "RHB" },
+  { id: "lhb", label: "LHB" },
+  { id: "most-runs", label: "Most Runs" },
+  { id: "highest-sr", label: "Highest S.R." },
+  { id: "highest-avg", label: "Highest Avg." },
+  { id: "most-4s", label: "Most 4s" },
+  { id: "most-6s", label: "Most 6s" }
+];
+
+const bowlingTabs = [
+  { id: "all", label: "All" },
+  { id: "pace", label: "Pace" },
+  { id: "spin", label: "Spin" },
+  { id: "most-wickets", label: "Most Wickets" },
+  { id: "best-sr", label: "Best S.R." },
+  { id: "best-avg", label: "Best Avg." },
+  { id: "most-dots", label: "Most Dots" },
+  { id: "best-eco", label: "Best Eco." }
+];
+
+// Render Tabs
+function renderTabs(tabs, activeTab = "all") {
+  const tabList = document.getElementById("tab-list");
+  tabList.innerHTML = ""; 
+  tabs.forEach(tab => {
+    const isActive = tab.id === activeTab;
+    tabList.insertAdjacentHTML("beforeend", `
+      <li class="mr-2">
+        <button id="tab-${tab.id}" type="button" onclick="switchSubTab('${tab.id}')"
+          class="inline-block px-4 py-2 ${isActive ? "text-custom-600 border-b-2 border-custom-500 rounded-t-lg dark:text-custom-300 dark:border-custom-400"
+          : "text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"}">
+          ${tab.label}
+        </button>
+      </li>
+    `);
+  });
+}
+
+// Default Tabs
+{% if request.form.get('view_type') == 'bowling' %}
+renderTabs(bowlingTabs);
+{% else %}
+renderTabs(battingTabs);
+{% endif %}
+
+// Radio change
+document.querySelectorAll('input[name="view_type"]').forEach(radio => {
+  radio.addEventListener("change", function () {
+    if (this.value === "batting") renderTabs(battingTabs);
+    else renderTabs(bowlingTabs);
+  });
+});
+
+// Sorting/Filtering
+function switchSubTab(tabId) {
+  // Reset tab styles
+  document.querySelectorAll("#tab-list button").forEach(btn => {
+    btn.classList.remove(
+      "text-custom-600",
+      "border-custom-500",
+      "dark:text-custom-300",
+      "dark:border-custom-400"
+    );
+    btn.classList.add(
+      "text-slate-500",
+      "hover:text-custom-600",
+      "border-transparent",
+      "dark:text-zink-300",
+      "dark:hover:text-custom-400"
+    );
+  });
+
+  // Highlight active tab
+  const activeButton = document.getElementById("tab-" + tabId);
+  activeButton.classList.remove(
+    "text-slate-500",
+    "hover:text-custom-600",
+    "border-transparent",
+    "dark:text-zink-300",
+    "dark:hover:text-custom-400"
+  );
+  activeButton.classList.add(
+    "text-custom-600",
+    "border-b-2",
+    "border-custom-500",
+    "rounded-t-lg",
+    "dark:text-custom-300",
+    "dark:border-custom-400"
+  );
+
+  // Filtering/sorting cards
+  const container = document.getElementById("players-container");
+  let cards = Array.from(document.querySelectorAll(".player-card"));
+  cards.forEach(card => card.style.display = "");
+
+  // Batting filters
+  if (tabId === "rhb") cards.forEach(c => { if (c.dataset.batterSkill !== "RHB") c.style.display = "none"; });
+  if (tabId === "lhb") cards.forEach(c => { if (c.dataset.batterSkill !== "LHB") c.style.display = "none"; });
+  if (tabId === "most-runs") cards.sort((a,b)=>b.dataset.runs-a.dataset.runs).forEach(c=>container.appendChild(c));
+  if (tabId === "highest-sr") cards.sort((a,b)=>b.dataset.strikeRate-a.dataset.strikeRate).forEach(c=>container.appendChild(c));
+  if (tabId === "highest-avg") cards.sort((a,b)=>b.dataset.average-a.dataset.average).forEach(c=>container.appendChild(c));
+  if (tabId === "most-4s") cards.sort((a,b)=>b.dataset.fours-a.dataset.fours).forEach(c=>container.appendChild(c));
+  if (tabId === "most-6s") cards.sort((a,b)=>b.dataset.sixes-a.dataset.sixes).forEach(c=>container.appendChild(c));
+
+  // Bowling filters
+  if (tabId === "pace") cards.forEach(c => { if (c.dataset.bowlerSkill !== "PACE") c.style.display = "none"; });
+  if (tabId === "spin") cards.forEach(c => { if (c.dataset.bowlerSkill !== "SPIN") c.style.display = "none"; });
+  if (tabId === "most-wickets") cards.sort((a,b)=>b.dataset.wkts-a.dataset.wkts).forEach(c=>container.appendChild(c));
+  if (tabId === "best-sr") cards.sort((a,b)=>a.dataset.strikeRate-b.dataset.strikeRate).forEach(c=>container.appendChild(c));
+  if (tabId === "best-avg") cards.sort((a,b)=>a.dataset.average-b.dataset.average).forEach(c=>container.appendChild(c));
+  if (tabId === "most-dots") cards.sort((a,b)=>b.dataset.dots-a.dataset.dots).forEach(c=>container.appendChild(c));
+  if (tabId === "best-eco") cards.sort((a,b)=>a.dataset.eco-b.dataset.eco).forEach(c=>container.appendChild(c));
+}
+
+</script>
+{% endblock %}

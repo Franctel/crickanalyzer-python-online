@@ -1,0 +1,42 @@
+{% extends 'partials/base.html' %}
+{% block title %}Polar Area Charts{% endblock title %}
+
+{% block content %}
+<div class="flex flex-col gap-2 py-4 md:flex-row md:items-center print:hidden">
+    <div class="grow">
+        <h5 class="text-16">Polar Area Charts</h5>
+    </div>
+    <ul class="flex items-center gap-2 text-sm font-normal shrink-0">
+        <li class="relative before:content-['\ea54'] before:font-remix ltr:before:-right-1 rtl:before:-left-1  before:absolute before:text-[18px] before:-top-[3px] ltr:pr-4 rtl:pl-4 before:text-slate-400 dark:text-zink-200">
+            <a href="#!" class="text-slate-400 dark:text-zink-200">Apexcharts</a>
+        </li>
+        <li class="text-slate-700 dark:text-zink-100">
+            Polar Area Charts
+        </li>
+    </ul>
+</div>
+<div class="grid grid-cols-1 gap-x-5 xl:grid-cols-2">
+    <div class="card">
+        <div class="card-body">
+            <h6 class="mb-4 text-15">Basic</h6>
+            <div id="basicPolar" class="apex-charts" data-chart-colors='["bg-custom-300", "bg-orange-300", "bg-green-300", "bg-yellow-300", "bg-purple-300", "bg-slate-300", "bg-red-300", "bg-emerald-200","bg-pink-200"]' dir="ltr"></div>
+        </div>
+    </div><!--end card-->
+    <div class="card">
+        <div class="card-body">
+            <h6 class="mb-4 text-15">Monochrome</h6>
+            <div id="monochromeChart" class="apex-charts" data-chart-colors='["bg-custom-500"]' dir="ltr"></div>
+        </div>
+    </div><!--end card-->
+</div><!--end grid-->
+
+{% endblock content %}
+
+{% block extra_content %}
+<!-- apexcharts js -->
+<script src="{{url_for('static' ,filename='libs/apexcharts/apexcharts.min.js')}}"></script>
+
+<!-- polar init js-->
+<script src="{{url_for('static' ,filename='js/pages/apexcharts-polar.init.js')}}"></script>
+
+{% endblock extra_content %}

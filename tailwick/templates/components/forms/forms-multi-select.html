@@ -1,0 +1,96 @@
+{% extends 'partials/base.html' %}
+{% block title %}Multi Select{% endblock title %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{url_for('static' ,filename='libs/multi.js/multi.min.css')}}">
+{% endblock extra_css %}
+
+{% block content %}
+<div class="flex flex-col gap-2 py-4 md:flex-row md:items-center print:hidden">
+    <div class="grow">
+        <h5 class="text-16">Multi Select</h5>
+    </div>
+    <ul class="flex items-center gap-2 text-sm font-normal shrink-0">
+        <li class="relative before:content-['\ea54'] before:font-remix ltr:before:-right-1 rtl:before:-left-1  before:absolute before:text-[18px] before:-top-[3px] ltr:pr-4 rtl:pl-4 before:text-slate-400 dark:text-zink-200">
+            <a href="#!" class="text-slate-400 dark:text-zink-200">Forms</a>
+        </li>
+        <li class="text-slate-700 dark:text-zink-100">
+            Multi Select
+        </li>
+    </ul>
+</div>
+<div class="grid grid-cols-1 gap-x-5 xl:grid-cols-2">
+    <div class="border-slate-200 card">
+        <div class="card-body">
+            <h6 class="mb-4 text-15">Basic Example</h6>
+            <form>
+                <select required multiple="multiple" name="favorite_fruits" id="multiselect-basic">
+                    <option selected>Apple</option>
+                    <option>Banana</option>
+                    <option selected>Blueberry</option>
+                    <option selected>Cherry</option>
+                    <option>Coconut</option>
+                    <option>Grapefruit</option>
+                    <option>Kiwi</option>
+                    <option>Lemon</option>
+                    <option>Lime</option>
+                    <option>Mango</option>
+                    <option>Orange</option>
+                    <option>Papaya</option>
+                </select>
+            </form>
+        </div>
+    </div><!--end card-->
+    <div class="card">
+        <div class="card-body">
+            <h6 class="mb-4 text-15">Headers Multi Select</h6>
+            <form>
+                <select required multiple="multiple" name="favorite_cars" id="multiselect-header">
+                    <option>Chevrolet</option>
+                    <option>Fiat</option>
+                    <option>Ford</option>
+                    <option>Honda</option>
+                    <option selected>Hyundai</option>
+                    <option>Kia</option>
+                    <option>Mahindra</option>
+                    <option>Maruti</option>
+                    <option>Mitsubishi</option>
+                    <option>MG</option>
+                    <option>Nissan</option>
+                    <option>Renault</option>
+                    <option selected>Skoda</option>
+                    <option selected>Tata</option>
+                    <option selected>Toyato</option>
+                    <option>Volkswagen</option>
+                </select>
+            </form>
+        </div>
+    </div><!--end card-->
+
+    <div class="card">
+        <div class="card-body">
+            <h6 class="mb-4 text-15">Option Groups</h6>
+            <form>
+                <select multiple="multiple" name="favorite_cars" id="multiselect-optiongroup">
+                    <optgroup label="Skoda">
+                        <option>Kushaq</option>
+                        <option>Superb</option>
+                        <option>Octavia</option>
+                        <option>Rapid</option>
+                    </optgroup>
+                    <optgroup label="Volkswagen">
+                        <option>Polo</option>
+                        <option>Taigun</option>
+                        <option>Vento</option>
+                    </optgroup>
+                </select>
+            </form>
+        </div>
+    </div><!--end card-->
+</div><!--end grid-->
+{% endblock content %}
+
+{% block extra_js %}
+<script src="{{url_for('static' ,filename='libs/multi.js/multi.min.js')}}"></script>
+<script src="{{url_for('static' ,filename='js/pages/form-multi-select.init.js')}}"></script>
+{% endblock extra_js %}

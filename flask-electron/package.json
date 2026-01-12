@@ -1,0 +1,36 @@
+{
+  "name": "flask-electron",
+  "version": "1.0.0",
+  "description": "Flask + Electron desktop app",
+  "main": "main.js",
+  "author": "Your Name",
+  "license": "ISC",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^37.4.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.crickanalyzer.desktop",
+    "productName": "CrickAnalyzer",
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "backend/main.exe",
+        "to": "backend/main.exe"
+      }
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    }
+  }
+}

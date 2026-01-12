@@ -1,0 +1,98 @@
+<!-- settings.html -->
+<div class="w-full h-full flex flex-col">
+
+  <!-- Header -->
+  <div class="flex justify-between items-center px-4 py-3 border-b border-slate-200 dark:border-zink-600 bg-white dark:bg-zink-700">
+    <h5 class="text-lg font-semibold text-slate-700 dark:text-zink-100">⚙️ Settings</h5>
+    <button onclick="closeTopbarSettings()"
+        class="p-1 text-slate-500 hover:text-slate-800 dark:text-zink-200 dark:hover:text-zink-50">
+      <i data-lucide="x" class="size-5"></i>
+    </button>
+  </div>
+
+  <!-- Content -->
+  <div class="flex-1 px-6 py-4 overflow-y-auto bg-white dark:bg-zink-700">
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+      
+      <!-- Label -->
+      <label for="video-path" class="col-span-12 md:col-span-3 text-sm font-medium text-slate-700 dark:text-zink-200">
+        Video Path
+      </label>
+
+      <!-- Input + Browse -->
+      <div class="col-span-12 md:col-span-9 flex gap-2">
+        <input type="text" id="video-path" name="video-path" placeholder="C:\\MatchVideos"
+            class="flex-1 px-3 py-2 text-sm border rounded-md shadow-sm border-slate-300 focus:ring focus:ring-sky-200 dark:bg-zink-600 dark:border-zink-500 dark:text-zink-100">
+
+        <!-- Browse Button -->
+        <button type="button" id="browseBtn"
+            class="px-4 py-2 text-sm font-medium text-white bg-sky-500 rounded-md hover:bg-sky-600 focus:ring focus:ring-sky-200 whitespace-nowrap">
+          Browse
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="flex items-center justify-end gap-3 px-6 py-3 border-t border-slate-200 dark:border-zink-600 bg-white dark:bg-zink-700">
+    <button onclick="closeTopbarSettings()" type="button"
+        class="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-200 rounded-md hover:bg-slate-300 dark:bg-zink-600 dark:text-zink-200">
+      Cancel
+    </button>
+    <button type="button" id="savePathBtn"
+        class="px-4 py-2 text-sm font-medium text-white bg-sky-500 rounded-md hover:bg-sky-600">
+      OK
+    </button>
+  </div>
+</div>
+
+<!-- JS -->
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  // 📂 Browse button click -> backend opens Tkinter dialog
+  document.getElementById("browseBtn").addEventListener("click", async () => {
+    try {
+      const res = await fetch("/browse-folder");
+      const data = await res.json();
+      if (data.folder) {
+        document.getElementById("video-path").value = data.folder;
+      } else {
+        alert("No folder selected");
+      }
+    } catch (err) {
+      console.error("Browse error:", err);
+      alert("Failed to open folder dialog");
+    }
+  });
+
+  // 💾 Save path
+  document.getElementById("savePathBtn").addEventListener("click", async () => {
+    const path = document.getElementById("video-path").value;
+    if (!path) {
+      alert("Please select a folder first");
+      return;
+    }
+    console.log("Selected path:", path);
+
+    // Store locally
+    localStorage.setItem("videoPath", path);
+
+    // Send to backend
+    await fetch("/set-video-path", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folder: path })
+    });
+
+    alert("Video path saved: " + path);
+  });
+});
+
+function openTopbarSettings() {
+  document.getElementById("settingsPanel").classList.remove("hidden");
+}
+
+function closeTopbarSettings() {
+  document.getElementById("settingsPanel").classList.add("hidden");
+}
+</script>

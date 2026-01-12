@@ -1,0 +1,145 @@
+{% extends 'partials/base.html' %}
+
+{% block title %}Instance Settings{% endblock title %}
+
+{% block content %}
+<div id="instancePanel" class="w-full h-full flex flex-col">
+
+  <!-- Header -->
+  <div class="flex justify-between items-center px-4 py-3 border-b border-slate-200 dark:border-zink-600 bg-white dark:bg-zink-700">
+    <h5 class="text-sm font-semibold text-slate-700 dark:text-zink-200">Database Connection Settings</h5>
+    <span id="db-status" class="text-xs text-slate-600 dark:text-zink-300">Checking...</span>
+  </div>
+
+  <!-- Content -->
+  <div class="flex-1 px-6 py-4 overflow-y-auto bg-white dark:bg-zink-700">
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+
+      <!-- Instance Name -->
+      <label for="instance-name" class="col-span-12 md:col-span-3 text-sm font-medium text-slate-700 dark:text-zink-200">
+        Instance Name
+      </label>
+      <div class="col-span-12 md:col-span-9">
+        <input type="text" id="instance-name" placeholder="SQLEXPRESS"
+          class="w-full px-3 py-2 text-sm border rounded-md shadow-sm border-slate-300
+                 focus:ring focus:ring-sky-200 dark:bg-zink-600 dark:border-zink-500 dark:text-zink-100">
+      </div>
+
+      <!-- IP Address -->
+      <label for="ip-address" class="col-span-12 md:col-span-3 text-sm font-medium text-slate-700 dark:text-zink-200">
+        IP Address
+      </label>
+      <div class="col-span-12 md:col-span-9">
+        <input type="text" id="ip-address" placeholder="192.168.1.100"
+          class="w-full px-3 py-2 text-sm border rounded-md shadow-sm border-slate-300
+                 focus:ring focus:ring-sky-200 dark:bg-zink-600 dark:border-zink-500 dark:text-zink-100">
+      </div>
+
+      <!-- Username -->
+      <label for="db-username" class="col-span-12 md:col-span-3 text-sm font-medium text-slate-700 dark:text-zink-200">
+        Username
+      </label>
+      <div class="col-span-12 md:col-span-9">
+        <input type="text" id="db-username" placeholder="Enter SQL username"
+          class="w-full px-3 py-2 text-sm border rounded-md shadow-sm border-slate-300
+                 focus:ring focus:ring-sky-200 dark:bg-zink-600 dark:border-zink-500 dark:text-zink-100">
+      </div>
+
+      <!-- Password -->
+      <label for="db-password" class="col-span-12 md:col-span-3 text-sm font-medium text-slate-700 dark:text-zink-200">
+        Password
+      </label>
+      <div class="col-span-12 md:col-span-9">
+        <input type="password" id="db-password" placeholder="Enter SQL password"
+          class="w-full px-3 py-2 text-sm border rounded-md shadow-sm border-slate-300
+                 focus:ring focus:ring-sky-200 dark:bg-zink-600 dark:border-zink-500 dark:text-zink-100">
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="flex items-center justify-center gap-3 px-6 py-3 border-t border-slate-200 dark:border-zink-600 bg-white dark:bg-zink-700">
+    <button onclick="closeInstancePanel()" type="button"
+      class="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-200 rounded-md hover:bg-slate-300 dark:bg-zink-600 dark:text-zink-200">
+      Cancel
+    </button>
+    <button type="button" id="clearInstanceBtn"
+      class="px-4 py-2 text-sm font-medium text-white bg-amber-500 rounded-md hover:bg-amber-600">
+      Use Local
+    </button>
+    <button type="button" id="saveInstanceBtn"
+      class="px-4 py-2 text-sm font-medium text-white bg-sky-500 rounded-md hover:bg-sky-600">
+      Save Remote
+    </button>
+  </div>
+</div>
+{% endblock content %}
+
+{% block extra_js %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const statusEl = document.getElementById("db-status");
+
+  // 🔹 Save Remote Settings
+  document.getElementById("saveInstanceBtn").addEventListener("click", async () => {
+    const instance = document.getElementById("instance-name").value.trim();
+    const ip = document.getElementById("ip-address").value.trim();
+    const username = document.getElementById("db-username").value.trim();
+    const password = document.getElementById("db-password").value.trim();
+
+    if (!instance || !ip || !username || !password) {
+      alert("Please enter Instance, IP, Username, and Password.");
+      return;
+    }
+
+    // Save in browser (optional convenience)
+    localStorage.setItem("instanceName", instance);
+    localStorage.setItem("ipAddress", ip);
+    localStorage.setItem("dbUsername", username);
+    localStorage.setItem("dbPassword", password);
+
+    await fetch("/set-instance-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instance, ip, username, password })
+    });
+
+    alert("✅ Remote database settings saved!");
+    statusEl.textContent = `Remote: ${ip}\\${instance}`;
+  });
+
+  // 🔹 Switch to Local
+  document.getElementById("clearInstanceBtn").addEventListener("click", async () => {
+    // clear browser cache
+    localStorage.removeItem("instanceName");
+    localStorage.removeItem("ipAddress");
+    localStorage.removeItem("dbUsername");
+    localStorage.removeItem("dbPassword");
+
+    // call backend clear
+    await fetch("/clear-instance-settings", { method: "POST" });
+
+    alert("✅ Now using local database.");
+    statusEl.textContent = "Local Database";
+  });
+
+  // 🔹 Restore form values on load
+  document.getElementById("instance-name").value = localStorage.getItem("instanceName") || "";
+  document.getElementById("ip-address").value = localStorage.getItem("ipAddress") || "";
+  document.getElementById("db-username").value = localStorage.getItem("dbUsername") || "";
+  document.getElementById("db-password").value = localStorage.getItem("dbPassword") || "";
+
+  // 🔹 Initial status
+  if (localStorage.getItem("ipAddress")) {
+    statusEl.textContent = `Remote: ${localStorage.getItem("ipAddress")}\\${localStorage.getItem("instanceName")}`;
+  } else {
+    statusEl.textContent = "Local Database";
+  }
+});
+
+function closeInstancePanel() {
+  document.getElementById("instancePanel").classList.add("hidden");
+}
+</script>
+{% endblock extra_js %}

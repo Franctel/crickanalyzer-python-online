@@ -1,0 +1,1 @@
+BATTER_DATA = {}

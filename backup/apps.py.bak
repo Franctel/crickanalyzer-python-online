@@ -1,0 +1,254 @@
+from flask import Blueprint, render_template, request
+from flask_login import login_required
+from .models import Team
+from tailwick.utils import get_data_from_db,get_all_teams, create_team_order_summary, render_summary_table, make_summary_table, get_all_tournaments, get_teams_by_tournament, get_matches_by_team, get_players_by_match, get_days_innings_sessions_by_matches, get_match_format_by_tournament, get_filtered_score_data, generate_kpi_tables, generate_total_kpi_table, generate_kpi_with_summary_tables, get_ball_by_ball_details, generate_commentary
+
+
+
+
+import pandas as pd
+import pyodbc
+import mysql.connector
+
+apps = Blueprint('apps',__name__,template_folder='templates',
+    static_folder='static')
+    
+
+@apps.route('/apps/<string:template_name>')
+def dynamic_template_apps_view(template_name):
+    return render_template(f'apps/{template_name}.html')
+
+@apps.route('/apps/calendar/<string:template_name>')
+def dynamic_template_calendar_view(template_name):
+    return render_template(f'apps/calendar/{template_name}.html')
+
+@apps.route('/apps/ecommerce/<string:template_name>')
+def dynamic_template_ecommerce_view(template_name):
+    return render_template(f'apps/ecommerce/{template_name}.html')
+
+@apps.route('/apps/hr/<string:template_name>')
+def dynamic_template_hr_view(template_name):
+    return render_template(f'apps/hr/{template_name}.html')    
+
+@apps.route('/apps/social/<string:template_name>')
+def dynamic_template_social_view(template_name):
+    return render_template(f'apps/social/{template_name}.html')
+
+@apps.route('/apps/invoice/<string:template_name>')
+def dynamic_template_invoice_view(template_name):
+    return render_template(f'apps/invoice/{template_name}.html')
+
+@apps.route('/apps/users/<string:template_name>')
+def dynamic_template_users_view(template_name):
+    return render_template(f'apps/users/{template_name}.html')
+
+@apps.route('/video')
+def video_player():
+    video_url = request.args.get('url', '')
+    video_path = video_url.split('/')[-1] if video_url else ''
+    return render_template("apps/video_player.html", video_url=video_url, video_path=video_path)
+
+
+@apps.route('/dashboards-analytics', methods=['GET', 'POST'])
+
+def dashboards_analytics():
+    teams = get_all_teams()
+    selected_orders = []
+    team1_table = team2_table = team1_summary = team2_summary = ""
+    team1_name = team2_name = ""
+
+    if request.method == 'POST':
+        team1 = request.form.get('team1')
+        team2 = request.form.get('team2')
+        selected_orders = request.form.getlist('choices-order')
+        df = get_data_from_db(team1, team2)
+
+        for inn in [1, 2]:
+            team, summary_df = create_team_order_summary(df, inn)
+            if summary_df is not None:
+                filtered_df = summary_df[summary_df["Order"].isin(selected_orders + ["Team Total"])]
+                table_html = render_summary_table(team, filtered_df)
+                summary_html = make_summary_table(team, filtered_df, selected_orders)
+
+                if team == team1:
+                    team1_table = table_html
+                    team1_summary = summary_html
+                    team1_name = team
+                elif team == team2:
+                    team2_table = table_html
+                    team2_summary = summary_html
+                    team2_name = team
+
+    return render_template(
+        "dashboard/dashboards-analytics.html",
+        teams=teams,
+        selected_orders=selected_orders,
+        team1_table=team1_table,
+        team2_table=team2_table,
+        team1_summary=team1_summary,
+        team2_summary=team2_summary,
+        team1_name=team1_name,
+        team2_name=team2_name
+    )
+
+@apps.route('/apps/apps-chat', methods=['GET', 'POST'])
+def advanced_filters():
+    tournaments = get_all_tournaments()
+    selected_tournament = request.form.get("tournament") if request.method == "POST" else None
+    selected_team = request.form.get("team") if request.method == "POST" else None
+    selected_matches = request.form.getlist("matches[]") if request.method == "POST" else []
+
+    selected_day = request.form.get("day") if request.method == "POST" else None
+    selected_inning = request.form.get("inning") if request.method == "POST" else None
+    selected_session = request.form.get("session") if request.method == "POST" else None
+    selected_phase = request.form.get("phase") if request.method == "POST" else None
+    from_over = request.form.get("from_over") if request.method == "POST" else None
+    to_over = request.form.get("to_over") if request.method == "POST" else None
+    selected_type = request.form.get("type") if request.method == "POST" else "batter"
+    selected_ball_phase = request.form.get("ball_phase") if request.method == "POST" else None
+
+    match_format = None
+    if selected_tournament:
+        try:
+            format_result = get_match_format_by_tournament(selected_tournament)
+            match_format = format_result.lower() if format_result else None
+        except Exception as e:
+            print("⚠️ Failed to get match format:", e)
+
+    teams = get_teams_by_tournament(selected_tournament) if selected_tournament else []
+    matches = get_matches_by_team(selected_team) if selected_team else []
+
+    days, innings, sessions = [], [], []
+    batters, bowlers = [], []
+    kpi_tables = {}
+    ball_by_ball_details = []
+
+
+
+    if selected_matches:
+        print("✅ Entered 'if selected_matches' block.")
+        try:
+            # Filters
+
+            days, innings, sessions = get_days_innings_sessions_by_matches(selected_matches)
+
+            # Player Lists
+            batters, bowlers = get_players_by_match(
+                selected_matches,
+                day=selected_day,
+                inning=selected_inning,
+                session=selected_session
+            )
+
+            # Raw Data
+            conn = mysql.connector.connect(
+            host='97.74.87.222',        # e.g. '127.0.0.1' or 'yourdomain.com'
+            user='cricketanalyzer_dbLite',
+            password='dbLiteuser',
+            database='cricketanalyzer_dbLite',
+            port=3306                    # default MySQL port; change if needed
+            )
+            
+            df = None
+            try:
+                
+                df = get_filtered_score_data(
+                    conn,
+                    selected_matches,
+                    day=selected_day,
+                    inning=selected_inning,
+                    session=selected_session,
+                    phase=selected_phase,
+                    from_over=from_over,
+                    to_over=to_over,
+                    type=selected_type,
+                    batters=request.form.getlist("batters[]"),
+                    bowlers=request.form.getlist("bowlers[]")
+                )
+                conn.close()
+                print(f"✅ Data rows {len(df)} ")
+            except Exception as e:
+                print("⚠️ Error loading data from DB:", e)
+
+            # Generate Combined KPI Tables (Match + Total Summary in one)
+            if df is not None and not df.empty:
+                kpi_tables = generate_kpi_with_summary_tables(df, selected_type)
+            else:
+                kpi_tables = {"No Data": "<p class='text-center text-slate-600 dark:text-zink-200'>No data found</p>"}
+
+            # Fetch ball-by-ball details
+            print("Fetching ball-by-ball details...")
+            ball_by_ball_df = get_ball_by_ball_details(selected_matches)
+            print(f"Ball-by-ball DataFrame loaded. Shape: {ball_by_ball_df.shape if not ball_by_ball_df.empty else 'Empty'}")
+            if not ball_by_ball_df.empty:
+                print("Processing ball-by-ball DataFrame...")
+                ball_by_ball_details = ball_by_ball_df.to_dict(orient='records')
+
+                for ball in ball_by_ball_details:
+                    ball['commentary'] = generate_commentary(ball)
+
+                    for i in range(1, 7):
+
+                        video_url_key = f'scrM_Video{i}URL'
+                        if pd.isna(ball.get(video_url_key)):
+                            ball[video_url_key] = None
+                
+                print("--- DEBUG START: Final ball_by_ball_details ---")
+                import json
+                print(json.dumps(ball_by_ball_details, indent=2))
+                print("--- DEBUG END ---")
+
+
+
+
+
+        except Exception as e:
+
+
+
+            print("⚠️ Error in processing player data:", e)
+
+
+    # Debug
+    if request.method == "POST":
+        print("📥 Filter Submission:", {
+            "tournament": selected_tournament,
+            "team": selected_team,
+            "matches": selected_matches,
+            "day": selected_day,
+            "inning": selected_inning,
+            "session": selected_session,
+            "phase": selected_phase,
+            "from_over": from_over,
+            "to_over": to_over,
+            "type": selected_type,
+            "ball_phase": selected_ball_phase,
+            "batters": request.form.getlist("batters[]"),
+            "bowlers": request.form.getlist("bowlers[]"),
+        })
+
+    return render_template(
+        "apps/apps-chat.html",
+        tournaments=tournaments,
+        teams=teams,
+        matches=matches,
+        batters=batters,
+        bowlers=bowlers,
+        days=days,
+        innings=innings,
+        sessions=sessions,
+        match_format=match_format,
+        selected_tournament=selected_tournament,
+        selected_team=selected_team,
+        selected_matches=selected_matches,
+        selected_day=selected_day,
+        selected_inning=selected_inning,
+        selected_session=selected_session,
+        selected_phase=selected_phase,
+        from_over=from_over,
+        to_over=to_over,
+        selected_type=selected_type,
+        selected_ball_phase=selected_ball_phase,
+        kpi_tables=kpi_tables,
+        ball_by_ball_details=ball_by_ball_details
+    )

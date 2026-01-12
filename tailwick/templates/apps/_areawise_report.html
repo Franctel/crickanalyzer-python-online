@@ -1,0 +1,296 @@
+{% if areawise_report and areawise_report.chart_data %}
+<div class="card">
+    <div class="card-body" id="areawise-content">
+        <h6 class="mb-4 text-15">Areawise Report</h6>
+
+        <!-- Main Bar Chart -->
+        <div id="areawise-bar-chart" class="apex-charts" 
+             data-chart-data='{{ areawise_report.chart_data | tojson | safe }}'></div>
+
+        <!-- Filter Buttons -->
+        <div id="areawise-filters" class="flex flex-wrap items-center gap-2 my-4">
+            <!-- Filter buttons will be injected here by JavaScript -->
+        </div>
+
+        <!-- Striker-wise Tables -->
+        <div id="strikers-container">
+        {% if areawise_report.strikers_data %}
+            {% for striker, table_data in areawise_report.strikers_data.items() %}
+            {% set total_runs = table_data | sum(attribute='runs') %}
+            <div class="striker-card mt-6" data-striker="{{ striker }}" data-total-runs="{{ total_runs }}">
+                <h6 class="mb-4 text-15 font-semibold">{{ striker }}</h6>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left rtl:text-right whitespace-nowrap">
+                        <thead class="border-b border-slate-200 dark:border-zink-500">
+                            <tr>
+                                <th class="px-3.5 py-2.5 font-semibold text-slate-500 dark:text-zink-200">Area Name</th>
+                                <th class="px-3.5 py-2.5 font-semibold text-slate-500 dark:text-zink-200">Runs</th>
+                                <th class="px-3.5 py-2.5 font-semibold text-slate-500 dark:text-zink-200">4s</th>
+                                <th class="px-3.5 py-2.5 font-semibold text-slate-500 dark:text-zink-200">6s</th>
+                                <th class="px-3.5 py-2.5 font-semibold text-slate-500 dark:text-zink-200">1s</th>
+                                <th class="px-3.5 py-2.5 font-semibold text-slate-500 dark:text-zink-200">2s</th>
+                                <th class="px-3.5 py-2.5 font-semibold text-slate-500 dark:text-zink-200">Strike Rate</th>
+                                <th class="px-3.5 py-2.5 font-semibold text-slate-500 dark:text-zink-200">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in table_data %}
+                            <tr data-area-name="{{ row.area_name }}">
+                                <td class="px-3.5 py-2.5 border-y border-slate-200 dark:border-zink-500">
+                                    {{ row.area_name }}
+                                </td>
+
+                                <!-- Runs -->
+                                <td class="px-3.5 py-2.5 border-y border-slate-200 dark:border-zink-500">
+                                    <div class="shot-bar w-20 h-4" 
+                                         data-type="runs"
+                                         data-chart-data='{{ {"series":[{"data":[row.runs]}]} | tojson | safe }}'></div>
+                                </td>
+
+                                <!-- 4s -->
+                                <td class="px-3.5 py-2.5 border-y border-slate-200 dark:border-zink-500">
+                                    <div class="shot-bar w-16 h-4" 
+                                         data-type="fours"
+                                         data-chart-data='{{ {"series":[{"data":[row.fours]}]} | tojson | safe }}'></div>
+                                </td>
+
+                                <!-- 6s -->
+                                <td class="px-3.5 py-2.5 border-y border-slate-200 dark:border-zink-500">
+                                    <div class="shot-bar w-16 h-4" 
+                                         data-type="sixes"
+                                         data-chart-data='{{ {"series":[{"data":[row.sixes]}]} | tojson | safe }}'></div>
+                                </td>
+
+                                <!-- 1s -->
+                                <td class="px-3.5 py-2.5 border-y border-slate-200 dark:border-zink-500">
+                                    <div class="shot-bar w-16 h-4" 
+                                         data-type="ones"
+                                         data-chart-data='{{ {"series":[{"data":[row.ones]}]} | tojson | safe }}'></div>
+                                </td>
+
+                                <!-- 2s -->
+                                <td class="px-3.5 py-2.5 border-y border-slate-200 dark:border-zink-500">
+                                    <div class="shot-bar w-16 h-4" 
+                                         data-type="twos"
+                                         data-chart-data='{{ {"series":[{"data":[row.twos]}]} | tojson | safe }}'></div>
+                                </td>
+
+                                <!-- Strike Rate -->
+                                <td class="px-3.5 py-2.5 border-y border-slate-200 dark:border-zink-500">
+                                    {{ row.strike_rate }}
+                                </td>
+
+                                <!-- Actions -->
+                                <td class="px-3.5 py-2.5 border-y border-slate-200 dark:border-zink-500">
+                                    {% if row.video_urls %}
+                                    <button class="p-1 text-xs font-medium rounded-md bg-green-500 text-white play-video-btn" 
+                                            data-videos='{{ row.video_urls | tojson }}' 
+                                            data-tailwind-url="{{ url_for('static', filename='css/tailwind.css') }}">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" 
+                                             viewBox="0 0 24 24" fill="none" stroke="currentColor" 
+                                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" 
+                                             class="lucide lucide-play">
+                                             <polygon points="5 3 19 12 5 21 5 3"/>
+                                        </svg>
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+            <p class="mt-6 text-center text-slate-600 dark:text-zink-200">No detailed areawise data available.</p>
+        {% endif %}
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body">
+        <p class="text-center text-slate-600 dark:text-zink-200">No Areawise data available for the selected filters.</p>
+    </div>
+</div>
+{% endif %}
+
+<!-- Load ApexCharts -->
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    // --- Sorting Striker Cards ---
+    const strikersContainer = document.getElementById('strikers-container');
+    if (strikersContainer) {
+        const strikerCards = Array.from(strikersContainer.getElementsByClassName('striker-card'));
+        strikerCards.sort((a, b) => (parseInt(b.dataset.totalRuns, 10) || 0) - (parseInt(a.dataset.totalRuns, 10) || 0));
+        strikerCards.forEach(card => strikersContainer.appendChild(card));
+    }
+
+    // --- Chart and Filter Logic ---
+    const filtersContainer = document.getElementById('areawise-filters');
+    const mainChartEl = document.getElementById('areawise-bar-chart');
+
+    if (!filtersContainer || !mainChartEl) {
+        return;
+    }
+
+    try {
+        // --- Generate Filter Buttons ---
+        const mainChartData = JSON.parse(mainChartEl.dataset.chartData);
+        const areas = mainChartData.labels || [];
+        let buttonsHTML = '<button data-filter="all" class="areawise-filter-btn active-filter px-3 py-1 text-xs font-medium rounded-md bg-custom-500 text-white">All</button>';
+        areas.forEach(area => {
+            buttonsHTML += `<button data-filter="${area}" class="areawise-filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">${area}</button>`;
+        });
+        filtersContainer.innerHTML = buttonsHTML;
+
+        // --- Filter Event Listener ---
+        filtersContainer.addEventListener('click', function(event) {
+            const button = event.target.closest('.areawise-filter-btn');
+            if (!button) return;
+
+            // Update button styles
+            filtersContainer.querySelectorAll('.areawise-filter-btn').forEach(btn => {
+                btn.classList.remove('active-filter', 'bg-custom-500', 'text-white');
+                btn.classList.add('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+            });
+            button.classList.add('active-filter', 'bg-custom-500', 'text-white');
+            button.classList.remove('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+            
+            const filter = button.dataset.filter;
+            
+            // Process filtering
+            document.querySelectorAll('.striker-card').forEach(card => {
+                let hasVisibleRows = false;
+                card.querySelectorAll('tbody tr').forEach(row => {
+                    const areaName = row.dataset.areaName;
+                    const shouldBeVisible = (filter === 'all' || areaName === filter);
+                    row.classList.toggle('hidden', !shouldBeVisible);
+                    if (shouldBeVisible) {
+                        hasVisibleRows = true;
+                    }
+                });
+                card.classList.toggle('hidden', !hasVisibleRows);
+            });
+        });
+
+    } catch (e) {
+        console.error("Error setting up areawise filters:", e);
+    }
+
+    // --- Chart Rendering ---
+    const colorsMap = {
+        ones: "rgba(59,130,246,0.7)", 
+        twos: "rgba(139,92,246,0.7)",
+        fours: "rgba(34,197,94,0.7)", 
+        sixes: "rgba(239,68,68,0.7)",
+        runs: "rgba(234,179,8,0.7)"
+    };
+
+    // Main Chart
+    try {
+        const chartData = JSON.parse(mainChartEl.dataset.chartData);
+
+        // ✅ Dynamic height: at least 400px, grows with number of labels
+        const dynamicHeight = Math.max(400, (chartData.labels?.length || 0) * 35);
+
+        const mainChartOptions = {
+            chart: { 
+                type: "bar",
+                height: dynamicHeight,
+                stacked: true,   // ✅ keeps series stacked neatly
+                toolbar: { show: true },
+                background: "transparent",
+                animations: { enabled: true, easing: "easeinout", speed: 700 }
+            },
+            plotOptions: { 
+                bar: { 
+                    horizontal: true, 
+                    barHeight: "65%",   // ✅ better spacing
+                    distributed: false
+                } 
+            },
+            dataLabels: { 
+                enabled: true,
+                style: { colors: ["#fff"], fontSize: "12px", fontWeight: 500 }, 
+                formatter: function (val) { return val > 0 ? val : ""; }
+            },
+            colors: ["#1E90FF", "#FF6347", "#32CD32", "#FFD700"], 
+            series: chartData.series || [], 
+            xaxis: { 
+                categories: chartData.labels || [], 
+                title: { text: "Runs", style: { fontSize: "14px", fontWeight: 600 } },
+                labels: { style: { fontSize: "12px", colors: "#374151" } }
+            },
+            yaxis: { 
+                title: { text: "Area", style: { fontSize: "14px", fontWeight: 600 } },
+                labels: { style: { fontSize: "12px", colors: "#374151" } }
+            },
+            tooltip: {
+                shared: true,
+                intersect: false,
+                y: { formatter: function (val) { return val + " runs"; } }
+            },
+            grid: { show: false },
+            title: { text: "Areawise Report", align: "center" },
+            legend: { 
+                position: "top",
+                horizontalAlign: "center",
+                offsetY: 10,
+                markers: { width: 14, height: 14 },
+                itemMargin: { horizontal: 10, vertical: 5 }
+            }
+        };
+
+        const chart = new ApexCharts(mainChartEl, mainChartOptions);
+        chart.render();
+
+        // ✅ Save globally so switchTab() can resize later
+        window.areawiseChart = chart;
+
+        // ✅ Force resize after render (fixes hidden-tab congestion)
+        setTimeout(() => {
+            chart.resize();
+        }, 500);
+
+    } catch (e) { 
+        console.error("Error rendering main chart", e);
+    }
+
+
+
+    // --- Lazy Load Inline Charts ---
+    const lazyRenderChart = (entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const el = entry.target;
+                try {
+                    const chartData = JSON.parse(el.dataset.chartData);
+                    const type = el.dataset.type;
+                    new ApexCharts(el, {
+                        chart: { type: "bar", height: 24, sparkline: { enabled: true } },
+                        plotOptions: { bar: { horizontal: true, columnWidth: "80%", dataLabels: { position: "center" } } },
+                        colors: [colorsMap[type] || "rgba(100,100,100,0.6)"], series: chartData.series,
+                        dataLabels: { enabled: true, formatter: (val) => val, style: { colors: ["#fff"], fontSize: "10px", fontWeight: "bold" } },
+                        tooltip: { enabled: false },
+                        xaxis: { labels: { show: false }, axisBorder: { show: false }, axisTicks: { show: false } },
+                        yaxis: { labels: { show: false } }
+                    }).render();
+                } catch (e) { console.error("Error rendering shot-bar", e); }
+                observer.unobserve(el);
+            }
+        });
+    };
+
+    const observer = new IntersectionObserver(lazyRenderChart, {
+        root: null,
+        rootMargin: '0px',
+        threshold: 0.1
+    });
+
+    document.querySelectorAll(".shot-bar").forEach(el => observer.observe(el));
+});
+</script>

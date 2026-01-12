@@ -1,0 +1,1727 @@
+{% extends 'partials/base.html' %}
+{% block title %}PLAYER ANALYSIS{% endblock title %}
+
+{% block content %}
+<div class="order-6 col-span-12 2xl:order-1 card 2xl:col-span-12">
+    <div class="card-body">
+        <button type="button" id="toggle-filter-btn"
+            class="flex items-center justify-between w-full px-4 py-2 mb-4 text-lg font-semibold text-left text-white bg-custom-500 rounded-md hover:bg-custom-600 focus:outline-none focus-visible:ring focus-visible:ring-custom-500 focus-visible:ring-opacity-75">
+            
+            <span class="text-lg font-semibold">Filters</span>
+            
+            <svg id="filter-arrow" xmlns="http://www.w3.org/2000/svg" width="28" height="28"
+                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"
+                class="w-6 h-6 transition-transform duration-200">
+                <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+        </button>
+
+        <div id="filter-section">
+            <form method="POST">
+                <h5 class="text-18 mb-4 font-semibold">Advanced Match Filters</h5>
+
+                <!-- Row 1: Tournament, Team, Matches -->
+                <div class="flex flex-col gap-3 md:flex-row md:items-center">
+                    <!-- Tournament -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="tournament" class="block mb-1 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            Tournament
+                        </label>
+
+                        <select id="tournament" name="tournament" onchange="this.form.submit()" 
+                            class="form-select w-full text-lg border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                            <option value="" disabled {{ 'selected' if not selected_tournament else '' }} class="text-lg">
+                                Select Tournament
+                            </option>
+
+                            {% for t in tournaments %}
+                            <option value="{{ t.value }}" class="text-lg"
+                                {% if selected_tournament and selected_tournament|int == t.value %}selected{% endif %}>
+                                {{ t.label }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+
+                    <!-- Team -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="team" class="block mb-1 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            Team
+                        </label>
+
+                        <select id="team" name="team" onchange="this.form.submit()"
+                            class="form-select w-full text-lg border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                            <option disabled {% if not request.form.get('team') %}selected{% endif %} class="text-lg">
+                                Select Team
+                            </option>
+
+                            {% for team in teams %}
+                            <option value="{{ team }}" class="text-lg"
+                                {% if team == request.form.get('team') %}selected{% endif %}>
+                                {{ team }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+
+                    <!-- Matches -->
+                    <!-- Matches -->
+                    <div class="relative w-full md:w-1/2">
+
+                        <label for="matches" class="block mb-1 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            Matches
+                        </label>
+
+                        <select id="matches" name="matches[]" multiple onchange="this.form.submit()" data-choices data-choices-removeItem
+                            class="form-input w-full text-lg border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                            <!-- ⬆️ "All" option font enlarged -->
+                            <option value="All" class="text-lg"
+                                {% if 'All' in request.form.getlist('matches[]') %}selected{% endif %}>
+                                All
+                            </option>
+
+                            <!-- ⬆️ Actual match list text enlarged to text-lg -->
+                            {% for m in matches %}
+                            <option value="{{ m }}" class="text-lg"
+                                {% if m in request.form.getlist('matches[]') %}selected{% endif %}>
+                                {{ m }}
+                            </option>
+                            {% endfor %}
+
+                        </select>
+                    </div>
+
+                </div>
+
+                <style>
+                    /* Increase font for Choices.js dropdown */
+                    .choices__inner, 
+                    .choices__list--dropdown .choices__item,
+                    .choices__list--single .choices__item,
+                    .choices__list .choices__item {
+                        font-size: 18px !important; /* Increase size */
+                    }
+
+                    /* Optional: increase height inside select box */
+                    .choices__inner {
+                        min-height: 48px;
+                        padding-top: 10px;
+                        padding-bottom: 10px;
+                    }
+
+                    /* Optional: tag style enlargement */
+                    .choices__list--multiple .choices__item {
+                        font-size: 18px !important;
+                        padding: 6px 10px;
+                    }
+                </style>
+
+                <!-- ✅ JS: Select/Deselect All Matches -->
+                <script>
+                document.addEventListener("DOMContentLoaded", function () {
+                    const matchSelect = document.querySelector("#matches");
+                    if (!matchSelect) return;
+
+                    matchSelect.addEventListener("change", function (e) {
+                        const selectedValues = Array.from(matchSelect.selectedOptions).map(o => o.value);
+                        const allOption = matchSelect.querySelector('option[value="All"]');
+
+                        // ✅ If "All" clicked — select/deselect everything
+                        if (e.target.value === "All") {
+                            const selectAll = !allOption.selected; // toggle
+                            Array.from(matchSelect.options).forEach(opt => opt.selected = selectAll);
+                        }
+
+                        // ✅ If any individual deselected — remove "All"
+                        else if (!selectedValues.includes("All")) {
+                            allOption.selected = false;
+                        }
+
+                        // ✅ Update Choices.js visual UI (if initialized)
+                        if (matchSelect.choices) {
+                            matchSelect.choices.setChoices(
+                                Array.from(matchSelect.options).map(o => ({
+                                    value: o.value,
+                                    label: o.label || o.textContent,
+                                    selected: o.selected,
+                                    disabled: o.disabled
+                                })),
+                                "value", "label", true
+                            );
+                        }
+                    });
+                });
+                </script>
+
+                <!-- Format-Specific Filters -->
+                {% if match_format in ['t20', 't20i', 'odi', 'one day', 'one day international'] %}
+                <!-- ⚾ LIMITED OVERS FILTERS -->
+                <div class="flex flex-col gap-3 mt-4 md:flex-row md:items-center">
+                    <!-- Phase -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="phase" class="block mb-2 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            Phase
+                        </label>
+
+                        {% if match_format %}
+                            {% set fmt = match_format.lower() %}
+                            {% if 't10' in fmt %}
+                                {% set total_overs = 10 %}
+                            {% elif 't20' in fmt or 'twenty' in fmt %}
+                                {% set total_overs = 20 %}
+                            {% elif 'odi' in fmt or 'one day' in fmt or '50' in fmt %}
+                                {% set total_overs = 50 %}
+                            {% else %}
+                                {% set total_overs = None %}
+                            {% endif %}
+                        {% else %}
+                            {% set total_overs = None %}
+                        {% endif %}
+
+                        {% if total_overs %}
+                            {% if total_overs == 50 %}
+                                {% set powerplay_end = 10 %}
+                                {% set middle_end = 40 %}
+                            {% elif total_overs == 20 %}
+                                {% set powerplay_end = 6 %}
+                                {% set middle_end = 15 %}
+                            {% elif total_overs == 10 %}
+                                {% set powerplay_end = 3 %}
+                                {% set middle_end = 7 %}
+                            {% else %}
+                                {% set powerplay_end = (total_overs * 0.3) | round(0, 'floor') | int %}
+                                {% set middle_end = (total_overs * 0.75) | round(0, 'floor') | int %}
+                            {% endif %}
+                        {% endif %}
+
+                        <select id="phase" name="phase"
+                            class="form-select w-full text-lg border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                            <!-- ⬆️ Placeholder upgraded -->
+                            <option disabled class="text-lg" {% if not request.form.get('phase') %}selected{% endif %}>
+                                Select Phase
+                            </option>
+
+                            {% if total_overs %}
+                                <option value="All" class="text-lg" {% if request.form.get('phase')=='All' %}selected{% endif %}>
+                                    All (1–{{ total_overs | int }})
+                                </option>
+
+                                <option value="Powerplay" class="text-lg" {% if request.form.get('phase')=='Powerplay' %}selected{% endif %}>
+                                    Powerplay (1–{{ powerplay_end | int }})
+                                </option>
+
+                                <option value="Middle" class="text-lg" {% if request.form.get('phase')=='Middle' %}selected{% endif %}>
+                                    Middle Overs ({{ (powerplay_end + 1) | int }}–{{ middle_end | int }})
+                                </option>
+
+                                <option value="Death" class="text-lg" {% if request.form.get('phase')=='Death' %}selected{% endif %}>
+                                    Slog Overs ({{ (middle_end + 1) | int }}–{{ total_overs | int }})
+                                </option>
+
+                            {% else %}
+                                <option class="text-lg" value="All" {% if request.form.get('phase')=='All' %}selected{% endif %}>All</option>
+                                <option class="text-lg" value="Powerplay" {% if request.form.get('phase')=='Powerplay' %}selected{% endif %}>Powerplay</option>
+                                <option class="text-lg" value="Middle" {% if request.form.get('phase')=='Middle' %}selected{% endif %}>Middle Overs</option>
+                                <option class="text-lg" value="Death" {% if request.form.get('phase')=='Death' %}selected{% endif %}>Slog Overs</option>
+                            {% endif %}
+                        </select>
+
+                    </div>
+
+                    <!-- From Over -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="from_over" class="block mb-2 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            From Over
+                        </label>
+                        <input type="number" id="from_over" name="from_over" value="{{ from_over or '' }}" min="0" max="50"
+                            class="form-input w-full text-lg border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"/>
+                    </div>
+
+                    <!-- To Over -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="to_over" class="block mb-2 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            To Over
+                        </label>
+                        <input type="number" id="to_over" name="to_over" value="{{ to_over or '' }}" min="0" max="50"
+                            class="form-input w-full text-lg border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"/>
+                    </div>
+
+                </div>
+                {% else %}
+                <!-- 🕰 MULTIDAY FILTERS -->
+                <div class="flex flex-col gap-3 mt-4 md:flex-row md:items-center">
+                    <!-- Day -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="day" class="block mb-2 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            Day
+                        </label>
+
+                        <select id="day" name="day"
+                            class="form-select w-full text-lg border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                            <option disabled class="text-lg" {% if not selected_day %}selected{% endif %}>
+                                Select Day
+                            </option>
+
+                            {% for d in days %}
+                            <option value="{{ d }}" class="text-lg"
+                                {% if selected_day|string == d|string %}selected{% endif %}>
+                                {{ d }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+
+                    <!-- Inning -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="inning" class="block mb-2 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            Inning
+                        </label>
+
+                        <select id="inning" name="inning"
+                            class="form-select w-full text-lg border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                            <option disabled class="text-lg" {% if not selected_inning %}selected{% endif %}>
+                                Select Inning
+                            </option>
+
+                            {% for inn in innings %}
+                            <option value="{{ inn }}" class="text-lg"
+                                {% if selected_inning|string == inn|string %}selected{% endif %}>
+                                {{ inn }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+
+                    <!-- Session -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="session" class="block mb-2 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            Session
+                        </label>
+
+                        <select id="session" name="session"
+                            class="form-select w-full text-lg border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                            <option disabled class="text-lg" {% if not selected_session %}selected{% endif %}>
+                                Select Session
+                            </option>
+
+                            {% for s in sessions %}
+                            <option value="{{ s }}" class="text-lg"
+                                {% if selected_session|string == s|string %}selected{% endif %}>
+                                {{ s }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                </div>
+                {% endif %}
+
+                <!-- Row 3: Player and Type Filters -->
+                <!-- Row 3: Player and Type Filters -->
+                <div class="flex flex-col gap-3 mt-4 md:flex-row md:items-center">
+                <!-- Type -->
+                <div class="relative w-full md:w-1/4">
+
+                    <!-- Label upgraded -->
+                    <label class="block mb-2 text-xl font-medium text-slate-600 dark:text-zink-200">
+                        Type
+                    </label>
+
+                    <div class="flex gap-6 mt-2">
+
+                        <!-- Option 1 -->
+                        <label class="inline-flex items-center">
+                            <input
+                                type="radio"
+                                name="type"
+                                value="batter"
+                                class="form-radio text-custom-500 transform scale-125"  
+                                onchange="this.form.submit()"
+                                {% if request.form.get('type','batter') == 'batter' %}checked{% endif %}
+                            >
+                            <span class="ml-3 text-lg text-slate-700 dark:text-zink-100">
+                                Batters vs Bowlers
+                            </span>
+                        </label>
+
+                        <!-- Option 2 -->
+                        <label class="inline-flex items-center">
+                            <input
+                                type="radio"
+                                name="type"
+                                value="bowler"
+                                class="form-radio text-custom-500 transform scale-125"  
+                                onchange="this.form.submit()"
+                                {% if request.form.get('type') == 'bowler' %}checked{% endif %}
+                            >
+                            <span class="ml-3 text-lg text-slate-700 dark:text-zink-100">
+                                Bowlers vs Batters
+                            </span>
+                        </label>
+
+                    </div>
+                </div>
+
+
+                <!-- Dynamic Dropdown Swap Based on Type -->
+                {% if request.form.get('type', 'batter') == 'batter' %}
+
+                    <!-- Batters Left -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="batters" class="block mb-2 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            Batters
+                        </label>
+                        <select
+                            id="batters"
+                            name="batters[]"
+                            multiple
+                            data-choices
+                            data-choices-removeItem
+                            class="form-input w-full text-lg border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
+                        >
+                            {% for p in batters %}
+                            <option value="{{ p }}" class="text-lg"
+                                {% if p in selected_batters %}selected{% endif %}>
+                                {{ p }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- VS -->
+                    <div class="flex items-center justify-center w-full md:w-1/12 text-center text-xl font-semibold text-zinc-600 dark:text-zink-200">
+                        VS
+                    </div>
+
+                    <!-- Bowlers Right -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="bowlers" class="block mb-2 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            Bowlers
+                        </label>
+                        <select
+                            id="bowlers"
+                            name="bowlers[]"
+                            multiple
+                            data-choices
+                            data-choices-removeItem
+                            class="form-input w-full text-lg border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
+                        >
+                            {% for p in bowlers %}
+                            <option value="{{ p }}" class="text-lg"
+                                {% if p in selected_bowlers %}selected{% endif %}>
+                                {{ p }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                {% else %}
+
+                    <!-- Bowlers Left -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="bowlers" class="block mb-2 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            Bowlers
+                        </label>
+                        <select
+                            id="bowlers"
+                            name="bowlers[]"
+                            multiple
+                            data-choices
+                            data-choices-removeItem
+                            class="form-input w-full text-lg border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
+                        >
+                            {% for p in bowlers %}
+                            <option value="{{ p }}" class="text-lg"
+                                {% if p in selected_bowlers %}selected{% endif %}>
+                                {{ p }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- VS -->
+                    <div class="flex items-center justify-center w-full md:w-1/12 text-center text-xl font-semibold text-zinc-600 dark:text-zink-200">
+                        VS
+                    </div>
+
+                    <!-- Batters Right -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="batters" class="block mb-2 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            Batters
+                        </label>
+                        <select
+                            id="batters"
+                            name="batters[]"
+                            multiple
+                            data-choices
+                            data-choices-removeItem
+                            class="form-input w-full text-lg border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
+                        >
+                            {% for p in batters %}
+                            <option value="{{ p }}" class="text-lg"
+                                {% if p in selected_batters %}selected{% endif %}>
+                                {{ p }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                {% endif %}
+
+
+                <!-- ✅ JS: Select/Deselect All Batters & Bowlers -->
+                <!-- ✅ JS: Handle "Select All" logic for Batters & Bowlers -->
+                <script>
+                document.addEventListener("DOMContentLoaded", function () {
+                ["#batters", "#bowlers"].forEach(selectId => {
+                    const el = document.querySelector(selectId);
+                    if (!el) return;
+
+                    el.addEventListener("change", function (e) {
+                    const allOption = el.querySelector('option[value="All"]');
+                    if (!allOption) return;
+
+                    const selected = Array.from(el.selectedOptions).map(o => o.value);
+                    if (e.target.value === "All") {
+                        const selectAll = allOption.selected;
+                        Array.from(el.options).forEach(opt => (opt.selected = selectAll));
+                    } else if (!selected.includes("All")) {
+                        allOption.selected = false;
+                    }
+
+                    if (el.choices) {
+                        el.choices.setChoices(
+                        Array.from(el.options).map(o => ({
+                            value: o.value,
+                            label: o.label || o.textContent,
+                            selected: o.selected
+                        })),
+                        "value", "label", true
+                        );
+                    }
+                    });
+                });
+                });
+                </script>
+
+
+
+                    {% if match_format in ['t20', 't20i', 'odi', 'one day', 'one day international'] %}
+                    <!-- Ball Phase (only for limited overs) -->
+                    <div class="relative w-full md:w-1/4">
+
+                        <label for="ball_phase" class="block mb-2 text-xl font-medium text-slate-600 dark:text-zink-200">
+                            Ball Phase
+                        </label>
+
+                        <select id="ball_phase" name="ball_phase"
+                            class="form-select w-full text-lg border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                            <option value="" class="text-lg" {% if not selected_ball_phase %}selected{% endif %}>All</option>
+
+                            <option value="First 10" class="text-lg" {% if selected_ball_phase == 'First 10' %}selected{% endif %}>
+                                First 10
+                            </option>
+
+                            <option value="Middle Balls" class="text-lg" {% if selected_ball_phase == 'Middle Balls' %}selected{% endif %}>
+                                Middle Balls
+                            </option>
+
+                            <option value="Last 10" class="text-lg" {% if selected_ball_phase == 'Last 10' %}selected{% endif %}>
+                                Last 10
+                            </option>
+
+                        </select>
+
+                    </div>
+
+                    {% endif %}
+
+                    <!-- Submit Button -->
+                    <div class="w-full md:w-auto mt-4 md:mt-6">
+                        <button type="submit"
+                            class="px-6 py-3 text-xl font-semibold btn bg-custom-500 text-white hover:bg-custom-600 focus:ring focus:ring-custom-200 dark:bg-custom-400 dark:hover:bg-custom-500">
+                            Generate
+                        </button>
+                    </div>
+
+
+                </div>
+
+            </form>
+        </div>
+    </div>
+</div>
+
+
+
+<!-- Tabs Strip -->
+<div class="mt-6 border-b border-gray-200 dark:border-zink-600">
+    <ul class="flex flex-wrap -mb-px text-xl font-semibold text-center" role="tablist">
+
+        <li class="mr-2">
+            <button id="tab-players" type="button"
+                class="inline-block px-5 py-3 text-custom-600 border-b-2 border-custom-500 rounded-t-lg active dark:text-custom-300 dark:border-custom-400"
+                onclick="switchTab('players')">
+                Player Vs Player
+            </button>
+        </li>
+
+        <li class="mr-2">
+            <button id="tab-ballbyball" type="button"
+                class="inline-block px-5 py-3 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                onclick="switchTab('ballbyball')">
+                Ball by Ball
+            </button>
+        </li>
+
+        <li class="mr-2">
+            <button id="tab-length" type="button"
+                class="inline-block px-5 py-3 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                onclick="switchTab('length')">
+                Line & Length
+            </button>
+        </li>
+
+        <li class="mr-2">
+            <button id="tab-areawise" type="button"
+                class="inline-block px-5 py-3 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                onclick="switchTab('areawise')">
+                Areawise Report
+            </button>
+        </li>
+
+        <li class="mr-2">
+            <button id="tab-shottype" type="button"
+                class="inline-block px-5 py-3 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                onclick="switchTab('shottype')">
+                Shot Type
+            </button>
+        </li>
+
+        <li>
+            <button id="tab-deliverytype" type="button"
+                class="inline-block px-5 py-3 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                onclick="switchTab('deliverytype')">
+                Delivery Type
+            </button>
+        </li>
+        
+    </ul>
+</div>
+
+
+
+<!-- Tab Content Containers -->
+<div id="tab-content-players" class="mt-4">
+    
+    <!-- ⭐ Refresh Only for Player Vs Player Tab -->
+    <div class="flex justify-end mb-3">
+        <button id="refresh-pvp-btn"
+            class="w-14 h-14 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white text-4xl shadow">
+            🔄
+        </button>
+    </div>
+
+
+    {% if selected_type == "batter" %}
+        {% if 'No Data' in kpi_tables %}
+            <div class="col-span-12 card mt-6" id="no-batter-kpi">
+                <div class="card-body">
+                    <p class="text-center text-slate-600 dark:text-zink-200">
+                        No Batter vs Bowler data available.
+                    </p>
+                </div>
+            </div>
+        {% else %}
+            {% for batter, table_html in kpi_tables.items() %}
+                <div class="col-span-12 card mt-6" id="batter-card-{{ loop.index }}">
+                    <div class="card-header px-4 pt-4 flex justify-between items-center">
+                       
+
+                        <!-- 📌 PDF Button -->
+                        <button onclick="downloadPlayerPDF('{{ batter }}')"
+                                class="px-5 py-2 text-lg font-semibold bg-red-500 text-white rounded-md hover:bg-red-600">
+                            Download PDF
+                        </button>
+
+                    </div>
+                    <div class="card-body pt-0">
+                        <div class="overflow-x-auto rounded-md border border-gray-200 dark:border-zink-700 p-3 mb-4">
+                            {{ table_html | safe }}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% endif %}
+
+    {% elif selected_type == "bowler" %}
+        {% if 'No Data' in kpi_tables %}
+            <div class="col-span-12 card mt-6" id="no-bowler-kpi">
+                <div class="card-body">
+                    <p class="text-center text-slate-600 dark:text-zink-200">
+                        No Bowler vs Batter data available.
+                    </p>
+                </div>
+            </div>
+        {% else %}
+            {% for bowler, table_html in kpi_tables.items() %}
+                <div class="col-span-12 card mt-6" id="bowler-card-{{ loop.index }}">
+                    <div class="card-header px-4 pt-4 flex justify-between items-center">
+                       
+
+                        <!-- 📌 PDF Button -->
+                        <button onclick="downloadPlayerPDF('{{ bowler }}')"
+                                class="px-5 py-2 text-lg font-semibold bg-red-500 text-white rounded-md hover:bg-red-600">
+                            Download PDF
+                        </button>
+                    </div>
+                    <div class="card-body pt-0">
+                        <div class="overflow-x-auto rounded-md border border-gray-200 dark:border-zink-700 p-3 mb-4">
+                            {{ table_html | safe }}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% endif %}
+
+    {% else %}
+        <div class="col-span-12 card mt-6" id="no-kpi-generic">
+            <div class="card-body">
+                <p class="text-center text-slate-600 dark:text-zink-200">
+                    No KPI data to display.
+                </p>
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<!-- PDF Download Script -->
+<script>
+function downloadPlayerPDF(playerName) {
+    // open in new tab to trigger PDF download
+    window.open(`/download_pdf/${encodeURIComponent(playerName)}`, "_blank");
+}
+</script>
+
+
+
+
+
+<div id="tab-content-ballbyball" class="hidden mt-4">
+    <div class="col-span-12 card">
+        <div class="card-body">
+            <!-- Filter Buttons -->
+            <style>
+                /* 🔥 Increased Ball-By-Ball filter button text size by +1 */
+                .filter-btn {
+                    font-size: 19px !important;   /* Previously 18px → now +1 larger */
+                    font-weight: 700 !important;
+                    padding: 8px 16px !important;
+                    border-radius: 6px;
+                }
+            </style>
+
+            <div id="ball-by-ball-filters" class="flex flex-wrap gap-2 mb-4">
+
+                <button data-filter="all"
+                    class="filter-btn bg-custom-500 text-white">
+                    All
+                </button>
+
+                <button data-filter="1"
+                    class="filter-btn bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                    1's
+                </button>
+
+                <button data-filter="2"
+                    class="filter-btn bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                    2's
+                </button>
+
+                <button data-filter="4"
+                    class="filter-btn bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                    4's
+                </button>
+
+                <button data-filter="6"
+                    class="filter-btn bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                    6's
+                </button>
+
+                <button data-filter="wickets"
+                    class="filter-btn bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                    Wickets
+                </button>
+
+                <button data-filter="beaten"
+                    class="filter-btn bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                    Beaten
+                </button>
+
+                <button data-filter="uncomfortable"
+                    class="filter-btn bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                    Uncomfortable
+                </button>
+
+                <button data-filter="last10"
+                    class="filter-btn bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                    Last 10 Balls
+                </button>
+
+                <button data-filter="last20"
+                    class="filter-btn bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                    Last 20 Balls
+                </button>
+
+                <button data-filter="play-all"
+                    class="filter-btn bg-green-500 text-white">
+                    Play All
+                </button>
+
+            </div>
+
+
+
+
+            <!-- Ball by Ball Container -->
+            <div id="ball-by-ball-container" class="space-y-2">
+                <!-- Content will be injected by JavaScript -->
+            </div>
+
+            <script id="ball-data" type="application/json">
+                {% if ball_by_ball_details %}{{ ball_by_ball_details | tojson | safe }}{% else %}[]{% endif %}
+            </script>
+
+        </div>
+    </div>
+</div>
+
+
+
+
+
+<div id="tab-content-length" class="hidden mt-4">
+    <div class="col-span-12 card">
+        <div class="card-body">
+            {% if line_length_report %}
+            <div id="line-length-container" class="space-y-6">
+                <!-- Skill Filters -->
+                <div id="skill-filters" class="flex flex-wrap justify-center gap-4 mb-4">
+
+                    <!-- 🔥 Batter Filters -->
+                    <div class="flex items-center gap-3">
+                        <label class="text-lg font-bold text-slate-600 dark:text-zink-200">Batter:</label>
+
+                        <button data-batter-skill="all"
+                            class="skill-btn-batter active-skill-btn px-4 py-2 text-lg font-semibold rounded-md bg-custom-500 text-white">
+                            All
+                        </button>
+
+                        <button data-batter-skill="RHB"
+                            class="skill-btn-batter px-4 py-2 text-lg font-semibold rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                            RHB
+                        </button>
+
+                        <button data-batter-skill="LHB"
+                            class="skill-btn-batter px-4 py-2 text-lg font-semibold rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                            LHB
+                        </button>
+                    </div>
+
+                    <!-- 🔥 Bowler Filters -->
+                    <div class="flex items-center gap-3">
+                        <label class="text-lg font-bold text-slate-600 dark:text-zink-200">Bowler:</label>
+
+                        <button data-bowler-skill="all"
+                            class="skill-btn-bowler active-skill-btn px-4 py-2 text-lg font-semibold rounded-md bg-custom-500 text-white">
+                            All
+                        </button>
+
+                        <button data-bowler-skill="Pace"
+                            class="skill-btn-bowler px-4 py-2 text-lg font-semibold rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                            Pace
+                        </button>
+
+                        <button data-bowler-skill="Spin"
+                            class="skill-btn-bowler px-4 py-2 text-lg font-semibold rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">
+                            Spin
+                        </button>
+                    </div>
+
+                </div>
+
+                <div class="flex flex-col md:flex-row gap-6 justify-center">
+                    <!-- Pitch Map with Filters -->
+                    <div class="flex-shrink-0">
+                        <div id="pitch-map-container" class="relative mx-auto" style="width: 340px; height: 560px;">
+                            <img id="pitch-image" src="{{ url_for('static', filename='images/our/RightPitch_1.png') }}" alt="Cricket Pitch" class="w-full h-full">
+                            <div id="pitch-points-container" class="absolute top-0 left-0 w-full h-full">
+                                <!-- Data points will be injected by JS -->
+                            </div>
+                        </div>
+
+                        <div id="pitch-map-filters" class="flex flex-wrap justify-center gap-2 mt-4 max-w-[340px] mx-auto">
+                            <button data-filter="all" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md border border-slate-400 bg-slate-200 text-slate-800">All</button>
+                            <button data-filter="0" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-white" style="background-color: #800000;">0s</button>
+                            <button data-filter="1" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-white" style="background-color: #0000FF;">1s</button>
+                            <button data-filter="2" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-black" style="background-color: #FF9999;">2s</button>
+                            <button data-filter="3" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-black" style="background-color: #FFE066;">3s</button>
+                            <button data-filter="4" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-white" style="background-color: #FFA500;">4s</button>
+                            <button data-filter="6" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-black" style="background-color: #00FF00;">6s</button>
+                            <button data-filter="W" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-white" style="background-color: #FF0000;">Wickets</button>
+                            <button id="play-pitch-videos-btn" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md bg-green-500 text-white">Video Play</button>
+                        </div>
+
+                    </div>
+
+                    <!-- Zone Heatmap Table -->
+                    <div id="zone-heatmap-container" class="overflow-x-auto flex-grow">
+                        <table id="zone-heatmap-table" class="w-full h-full text-xs border-collapse border border-slate-400 dark:border-zink-500">
+                            <thead id="zone-heatmap-head" class="bg-slate-100 dark:bg-zink-700">
+                                <!-- Header row will be injected by JS -->
+                            </thead>
+                            <tbody id="zone-heatmap-body">
+                                <!-- Data rows will be injected by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <script id="line-length-data" type="application/json">
+                {{ line_length_report | tojson | safe }}
+            </script>
+            {% else %}
+            <p class="text-center text-slate-600 dark:text-zink-200">No Line & Length data available for the selected filters.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div id="tab-content-areawise" class="hidden mt-4">
+    {% include 'apps/_areawise_report.html' %}
+</div>
+
+<div id="tab-content-shottype" class="hidden mt-4">
+    {% include 'apps/_shottype_report.html' %}
+</div>
+
+<div id="tab-content-deliverytype" class="hidden mt-4">
+    {% include 'apps/_deliverytype_report.html' %}
+</div>
+
+
+
+
+<!-- JS Tab Switch Logic -->
+<script>
+    let lineLengthRendered = false;
+    let areawiseChart = null;
+
+    // ✅ Base URL where Flask serves videos from
+    const basePath = "/video-file/";
+
+    /**
+     * 🔥 FINAL LOGIC — works with offline local video folders & matches backend.
+     *
+     * Example:
+     *   deliveryId = 14173
+     *   matchName = "WI_vs_IND_11_Oct_2025"
+     *   fileList = ["14173_WI_vs_IND_11_Oct_2025_1_0_1_Cam1.MP4", "14174_WI_vs_IND_11_Oct_2025_1_0_2_Cam1.MP4"]
+     *
+     * Returns:
+     *   /video-file/WI_vs_IND_11_Oct_2025/14173_WI_vs_IND_11_Oct_2025_1_0_1_Cam1.MP4
+     */
+    function resolveVideoUrl(deliveryId, matchName, fileList = []) {
+    // --- Safety checks ---
+    if (!deliveryId || !matchName) {
+        console.warn("⚠️ resolveVideoUrl: Missing deliveryId or matchName");
+        return "";
+    }
+
+    // --- Normalize and find matching .mp4 ---
+    const lowerId = String(deliveryId).toLowerCase();
+    const matchFile = fileList.find(f =>
+        typeof f === "string" &&
+        f.toLowerCase().startsWith(lowerId) &&
+        f.toLowerCase().endsWith(".mp4")
+    );
+
+    if (!matchFile) {
+        console.warn(`⚠️ No local MP4 found for delivery ${deliveryId} in ${matchName}`);
+        return "";
+    }
+
+    // --- Encode safely for Flask route ---
+    const encodedMatch = encodeURIComponent(matchName);
+    const encodedFile = encodeURIComponent(matchFile);
+
+    // --- Return final Flask video URL ---
+    return `${basePath}${encodedMatch}/${encodedFile}`;
+    }
+
+
+    function switchTab(tab) {
+        const tabs = ['players', 'ballbyball', 'length', 'areawise', 'shottype', 'deliverytype'];
+        tabs.forEach(t => {
+            const tabButton = document.getElementById('tab-' + t);
+            const tabContent = document.getElementById('tab-content-' + t);
+            if (tabButton && tabContent) {
+                tabButton.classList.remove('text-custom-600', 'border-custom-500', 'dark:text-custom-300', 'dark:border-custom-400', 'active');
+                tabButton.classList.add('text-slate-500', 'border-transparent');
+                tabContent.classList.add('hidden');
+            }
+        });
+
+        const activeTabButton = document.getElementById('tab-' + tab);
+        const activeTabContent = document.getElementById('tab-content-' + tab);
+        if (activeTabButton && activeTabContent) {
+            activeTabButton.classList.add('text-custom-600', 'border-custom-500', 'dark:text-custom-300', 'dark:border-custom-400', 'active');
+            activeTabButton.classList.remove('text-slate-500', 'border-transparent');
+            activeTabContent.classList.remove('hidden');
+        }
+
+        if (tab === 'length' && !lineLengthRendered) {
+            renderLineLengthReport();
+            lineLengthRendered = true;
+        }
+
+        if (tab === 'areawise' && window.areawiseChart) {
+            setTimeout(() => {
+                window.areawiseChart.resize();
+            }, 300);
+        }
+
+    }
+
+
+    // Global handler for ALL video buttons → Opens Advanced Flask Video Player
+    // Global handler for ALL video buttons → Opens Flask Video Player (DB-independent)
+    // Global handler for ALL video buttons → Opens Advanced Flask Video Player
+    document.addEventListener('click', function(event) {
+        const button = event.target.closest('.play-video-btn');
+        if (!button) return;
+
+        const matchId = button.getAttribute('data-match-id') || '';
+        const deliveryId = button.getAttribute('data-delivery-id') || '';
+        // If deliveryId present → open single-delivery player
+        if (deliveryId) {
+            const url = `/video_player?match_id=${encodeURIComponent(matchId)}&delivery_id=${encodeURIComponent(deliveryId)}`;
+            window.open(url, '_blank');
+            return;
+        }
+
+        // Otherwise try explicit videos list (legacy)
+        let videoFiles = [];
+        try {
+            videoFiles = JSON.parse(button.getAttribute('data-videos') || '[]').filter(f => f && f.trim() !== '');
+        } catch (e) {
+            videoFiles = [];
+        }
+
+        if (!videoFiles || videoFiles.length === 0) {
+            if (matchId) {
+                window.open(`/video_player?match_id=${encodeURIComponent(matchId)}`, "_blank");
+            } else {
+                alert("No videos available and no match ID found.");
+            }
+            return;
+        }
+
+        // Resolve local file names into /video-file/<encoded> - if resolveVideoUrl available
+        const videoUrls = videoFiles.map(f => {
+            try {
+                return resolveVideoUrl(f, matchId);
+            } catch (e) {
+                return '';
+            }
+        }).filter(u => u && u.trim() !== '');
+
+        const queryParams = new URLSearchParams({
+            videos: videoUrls.join(','),
+            batter_id: button.getAttribute('data-batter-id') || '',
+            bowler_id: button.getAttribute('data-bowler-id') || '',
+            metric: button.getAttribute('data-metric') || '',
+            match_id: matchId,
+            inning_id: button.getAttribute('data-inning-id') || ''
+        });
+
+        window.open(`/video_player?${queryParams.toString()}`, "_blank");
+    });
+
+
+
+
+
+
+
+
+    // ---------- Line & Length Report Logic ----------
+    // ---------- Line & Length Report Logic ----------
+    function renderLineLengthReport() {
+        const lineLengthContainer = document.getElementById('line-length-container');
+        if (!lineLengthContainer) return;
+
+        const lineLengthDataEl = document.getElementById('line-length-data');
+        if (!lineLengthDataEl || !lineLengthDataEl.textContent) return;
+
+        const allBalls = JSON.parse(lineLengthDataEl.textContent || '[]');
+        if (!allBalls || !allBalls.pitch_points) return;
+
+        const allPitchPoints = allBalls.pitch_points;
+        const pointsContainer = document.getElementById('pitch-points-container');
+        const pitchImage = document.getElementById('pitch-image');
+        const runFilterButtons = document.getElementById('pitch-map-filters');
+        const skillFiltersContainer = document.getElementById('skill-filters');
+
+        let currentBatterSkill = 'all';
+        let currentBowlerSkill = 'all';
+        let currentRunFilter = 'all';
+        let currentPitchMapPoints = [];
+
+        const colorMap = { 0: '#800000', 1: '#0000FF', 2: '#FF9999', 3: '#FFE066', 4: '#FFA500', 6: '#00FF00', 'W': '#FF0000' };
+
+
+        // Use backend-calculated zone labels for all zone logic
+        const lineLabels = ['Way Outside Off', 'Outside Off', 'Just Outside Off', 'Off Stump', 'Middle Stump', 'Leg Stump', 'Outside Leg'];
+        const lengthLabels = ['Short Pitch', 'Short of Good', 'Good Length', 'Overpitch', 'Full Length', 'Yorker', 'Fulltoss'];
+
+        function plotPoints(points) {
+            if (!pointsContainer) return;
+            pointsContainer.innerHTML = '';
+            // If your data is in 0-170 x 0-280, scale to 340x560
+            const dataWidth = 170, dataHeight = 280;
+            const displayWidth = 340, displayHeight = 560;
+            // Ball image mapping
+            const ballImages = {
+                0: '/static/MaroonBall_Resized.png',
+                1: '/static/BlueBall_Resized.png',
+                2: '/static/PinkBall_Resized.png',
+                3: '/static/YellowBall_Resized.png',
+                4: '/static/OrangeBall_Resized.png',
+                6: '/static/GreenBall_Resized.png',
+                'W': '/static/RedBall_Resized.png'
+            };
+            const ballSize = 16; // px, adjust as needed for visual size
+            points.forEach(point => {
+                if (point.scrM_PitchX === null || point.scrM_PitchY === null) return;
+                // Scale up if data is in 170x280, else if already 340x560 this is a no-op
+                let x = point.scrM_PitchX;
+                let y = point.scrM_PitchY;
+                if (x <= dataWidth && y <= dataHeight) {
+                    x = x * (displayWidth / dataWidth);
+                    y = y * (displayHeight / dataHeight);
+                }
+                if (y < 0) y = 0;
+                const xPerc = (x / displayWidth) * 100;
+                const yPerc = (y / displayHeight) * 100;
+                const pointEl = document.createElement('div');
+                pointEl.className = 'absolute flex items-center justify-center transform -translate-x-1/2 -translate-y-1/2';
+                pointEl.style.left = `${xPerc}%`;
+                pointEl.style.top = `${yPerc}%`;
+                let imgSrc = '';
+                let altText = '';
+                if (point.scrM_IsWicket == 1) {
+                    imgSrc = ballImages['W'];
+                    altText = 'Wicket';
+                } else {
+                    const run = point.scrM_BatsmanRuns;
+                    imgSrc = ballImages[run] || ballImages[0];
+                    altText = run;
+                }
+                const img = document.createElement('img');
+                img.src = imgSrc;
+                img.alt = altText;
+                img.style.width = ballSize + 'px';
+                img.style.height = ballSize + 'px';
+                img.style.display = 'block';
+                pointEl.appendChild(img);
+                pointsContainer.appendChild(pointEl);
+            });
+        }
+
+        function updateHeatmap(points) {
+            const heatmapTableHead = document.querySelector('#zone-heatmap-table thead');
+            const heatmapTableBody = document.querySelector('#zone-heatmap-table tbody');
+            if (!heatmapTableHead || !heatmapTableBody) return;
+
+            heatmapTableHead.innerHTML = '';
+            heatmapTableBody.innerHTML = '';
+
+            // Build all zones (to ensure all combinations are present)
+            const allZones = [];
+            lengthLabels.forEach(length => {
+                lineLabels.forEach(line => {
+                    allZones.push(`${length}-${line}`);
+                });
+            });
+            // Initialize heatmap data for all zones
+            const newHeatmapData = {};
+            allZones.forEach(zone => {
+                newHeatmapData[zone] = {
+                    balls: 0, runs: 0, wickets: 0,
+                    ones: 0, twos: 0, threes: 0, fours: 0, sixes: 0
+                };
+            });
+            // Aggregate data using backend-calculated zone labels
+            let totalBalls = 0;
+            points.forEach(p => {
+                if (!p.Zone) return;
+                const zoneName = p.Zone;
+                const runs = Number(p.scrM_BatsmanRuns) || 0;
+                if (!(zoneName in newHeatmapData)) return;
+                newHeatmapData[zoneName].balls++;
+                newHeatmapData[zoneName].runs += runs;
+                if (runs === 1) newHeatmapData[zoneName].ones++;
+                if (runs === 2) newHeatmapData[zoneName].twos++;
+                if (runs === 3) newHeatmapData[zoneName].threes++;
+                if (runs === 4) newHeatmapData[zoneName].fours++;
+                if (runs === 6) newHeatmapData[zoneName].sixes++;
+                if (p.scrM_IsWicket == 1) newHeatmapData[zoneName].wickets++;
+                totalBalls++;
+            });
+            // Use max balls for intensity (like Python heatmap)
+            const maxBalls = Math.max(1, ...Object.values(newHeatmapData).map(d => d.balls));
+            const headerRow = document.createElement('tr');
+            headerRow.innerHTML = `<th class=\"p-2 border border-slate-300 dark:border-zink-600\"></th>`;
+            // Only reverse the display order of the labels for LHB
+            let displayLabels = lineLabels;
+            if (currentBatterSkill === 'LHB') {
+                displayLabels = [...lineLabels].reverse();
+            }
+            displayLabels.forEach(label => {
+                const th = document.createElement('th');
+                th.className = 'p-2 border border-slate-300 dark:border-zink-600 text-center text-lg font-semibold';
+                th.textContent = label;
+                headerRow.appendChild(th);
+            });
+            heatmapTableHead.appendChild(headerRow);
+
+            lengthLabels.forEach(length => {
+                const bodyRow = document.createElement('tr');
+                const th = document.createElement('th');
+                th.className = 'p-2 border border-slate-300 dark:border-zink-600 text-left text-lg font-semibold align-middle';
+                th.textContent = length;
+                bodyRow.appendChild(th);
+                lineLabels.forEach(line => {
+                    const zoneName = `${length}-${line}`;
+                    const data = newHeatmapData[zoneName] || { balls: 0, runs: 0, wickets: 0, ones: 0, twos: 0, fours: 0, sixes: 0 };
+                    const td = document.createElement('td');
+                    td.className = 'p-2 border border-slate-300 dark:border-zink-600 text-center';
+                    // Hide box if ALL stats are zero (including 1s, 2s, 4s, 6s, wickets)
+                    if (
+                        data.balls === 0 &&
+                        data.runs === 0 &&
+                        data.ones === 0 &&
+                        data.twos === 0 &&
+                        data.fours === 0 &&
+                        data.sixes === 0 &&
+                        data.wickets === 0
+                    ) {
+                        td.style.backgroundColor = 'transparent';
+                        td.style.border = '1px solid rgba(100,100,100,0.1)';
+                        td.innerHTML = '';
+                        bodyRow.appendChild(td);
+                        return;
+                    }
+                    // Use balls for intensity (like Python heatmap)
+                    const intensity = data.balls / maxBalls;
+                    td.style.backgroundColor =
+                        data.balls > 0
+                            ? `rgba(34, 197, 94, ${Math.max(0.1, intensity)})`
+                            : 'rgba(241, 245, 249, 0.5)';
+                    if (data.wickets > 0) td.style.border = '2px solid #ef4444';
+                    // Build 4 rows, only non-zero metrics, with gap
+                    // Row 1: balls (B), runs (R)
+                    let row1 = [];
+                    if (data.balls > 0) row1.push(`${data.balls} B`);
+                    if (data.runs > 0) row1.push(`${data.runs} R`);
+                    // Row 2: 1s, 2s, 3s (only non-zero)
+                    let row2 = [];
+                    if (data.ones > 0) row2.push(`1s ${data.ones}`);
+                    if (data.twos > 0) row2.push(`2s ${data.twos}`);
+                    if (data.threes > 0) row2.push(`3s ${data.threes}`);
+                    // Row 3: 4s, 6s (only non-zero)
+                    let row3 = [];
+                    if (data.fours > 0) row3.push(`4s ${data.fours}`);
+                    if (data.sixes > 0) row3.push(`6s ${data.sixes}`);
+                    // Row 4: wickets (W, only non-zero)
+                    let row4 = [];
+                    if (data.wickets > 0) row4.push(`<span style=\"color:#ef4444;font-weight:bold;\">W ${data.wickets}</span>`);
+                    // Always 4 rows, join metrics with gap
+                    td.innerHTML = `
+                        <div style=\"font-size:16px; font-weight:600;\">${row1.join(' &nbsp;&nbsp; ')}</div>
+                        <div style=\"font-size:16px;\">${row2.join(' &nbsp;&nbsp; ')}</div>
+                        <div style=\"font-size:16px;\">${row3.join(' &nbsp;&nbsp; ')}</div>
+                        <div style=\"font-size:16px;\">${row4.join(' &nbsp;&nbsp; ')}</div>
+                    `;
+                    bodyRow.appendChild(td);
+                });
+                heatmapTableBody.appendChild(bodyRow);
+            });
+        }
+
+        function applyAllFilters() {
+            let filteredPoints = allPitchPoints;
+
+            if (currentBatterSkill === 'RHB') {
+                filteredPoints = filteredPoints.filter(p => p.scrM_StrikerBatterSkill === 'Right handed batsman (RHB)');
+            } else if (currentBatterSkill === 'LHB') {
+                filteredPoints = filteredPoints.filter(p => p.scrM_StrikerBatterSkill === 'Left handed batsman (LHB)');
+            }
+
+            if (currentBowlerSkill === 'Pace') {
+                const paceSkills = ['Right arm fast (RAF)', 'Right arm medium fast (RAMF)', 'left arm fast (LAF)', 'Left arm medium fast (LAMF)'];
+                filteredPoints = filteredPoints.filter(p => paceSkills.includes(p.scrM_BowlerSkill));
+            } else if (currentBowlerSkill === 'Spin') {
+                const paceSkills = ['Right arm fast (RAF)', 'Right arm medium fast (RAMF)', 'left arm fast (LAF)', 'Left arm medium fast (LAMF)'];
+                filteredPoints = filteredPoints.filter(p => p.scrM_BowlerSkill && !paceSkills.includes(p.scrM_BowlerSkill));
+            }
+
+            updateHeatmap(filteredPoints);
+
+            let pitchMapPoints = filteredPoints;
+            if (currentRunFilter !== 'all') {
+                if (currentRunFilter === 'W') {
+                    pitchMapPoints = filteredPoints.filter(p => p.scrM_IsWicket == 1);
+                } else {
+                    const runVal = parseInt(currentRunFilter, 10);
+                    pitchMapPoints = filteredPoints.filter(p => p.scrM_BatsmanRuns === runVal && p.scrM_IsWicket != 1);
+                }
+            }
+            currentPitchMapPoints = pitchMapPoints;
+            plotPoints(pitchMapPoints);
+        }
+
+        if (skillFiltersContainer) {
+            skillFiltersContainer.addEventListener('click', (e) => {
+                const button = e.target.closest('button');
+                if (!button) return;
+
+                const batterSkill = button.dataset.batterSkill;
+                const bowlerSkill = button.dataset.bowlerSkill;
+
+                if (batterSkill) {
+                    currentBatterSkill = batterSkill;
+                    document.querySelectorAll('.skill-btn-batter').forEach(btn => {
+                        btn.classList.remove('bg-custom-500', 'text-white');
+                        btn.classList.add('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+                    });
+                    button.classList.add('bg-custom-500', 'text-white');
+                    button.classList.remove('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+
+                    if (pitchImage) {
+                        pitchImage.src = batterSkill === 'LHB' 
+                            ? "{{ url_for('static', filename='images/our/LeftPitch_1.png') }}" 
+                            : "{{ url_for('static', filename='images/our/RightPitch_1.png') }}";
+                    }
+                }
+
+                if (bowlerSkill) {
+                    currentBowlerSkill = bowlerSkill;
+                    document.querySelectorAll('.skill-btn-bowler').forEach(btn => {
+                        btn.classList.remove('bg-custom-500', 'text-white');
+                        btn.classList.add('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+                    });
+                    button.classList.add('bg-custom-500', 'text-white');
+                    button.classList.remove('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+                }
+
+                applyAllFilters();
+            });
+        }
+
+        if (runFilterButtons) {
+            runFilterButtons.addEventListener('click', (e) => {
+                const button = e.target.closest('button');
+                if (!button || button.id === 'play-pitch-videos-btn') return;
+                currentRunFilter = button.dataset.filter;
+                applyAllFilters();
+            });
+        }
+
+        applyAllFilters(); // Initial render ✅
+
+        // ✅ FINAL FIX — UNIVERSAL DELIVERY ID DETECTOR
+        function detectDeliveryId(ball) {
+            for (const key of Object.keys(ball)) {
+                const k = key.toLowerCase();
+                if (k.includes("del") || k.includes("ball") || k.endsWith("_id")) {
+                    return ball[key];
+                }
+            }
+            return null;
+        }
+
+        const playPitchVideosBtn = document.getElementById('play-pitch-videos-btn');
+        if (playPitchVideosBtn) {
+            playPitchVideosBtn.addEventListener('click', () => {
+
+                if (!currentPitchMapPoints || currentPitchMapPoints.length === 0) {
+                    alert("No deliveries found for the selected filter.");
+                    return;
+                }
+
+                const deliveryIds = currentPitchMapPoints
+                    .map(p => detectDeliveryId(p))
+                    .filter(id => id !== null && id !== undefined && id !== "");
+
+                if (deliveryIds.length === 0) {
+                    alert("⚠️ No delivery IDs found. Data contains pitch positions but no linked video IDs.");
+                    return;
+                }
+
+                const sample = currentPitchMapPoints[0];
+                const matchId = sample.scrM_MatchName || '';
+                const inningId = sample.scrM_InningNo || '';
+
+                if (!matchId) {
+                    alert("⚠️ Missing match identifier.");
+                    return;
+                }
+
+                const qs = new URLSearchParams({
+                    match_id: matchId,
+                    inning_id: inningId,
+                    metric: currentRunFilter || 'ALL'
+                });
+
+                qs.set("delivery_ids", deliveryIds.join(","));
+
+                console.log("🎬 Playing", deliveryIds.length, "balls from Line & Length View");
+                window.open(`/video_player?${qs.toString()}`, "_blank");
+            });
+        }
+    }
+
+
+
+    // ---------- Ball-by-Ball Filtering Logic ----------
+document.addEventListener('DOMContentLoaded', function () {
+  const toggleBtn = document.getElementById('toggle-filter-btn');
+  const filterSection = document.getElementById('filter-section');
+  const filterArrow = document.getElementById('filter-arrow');
+
+  if (toggleBtn && filterSection && filterArrow) {
+    const updateArrow = () => {
+      filterArrow.style.transform = filterSection.classList.contains('hidden') ? 'rotate(180deg)' : 'rotate(0deg)';
+    };
+    toggleBtn.addEventListener('click', () => { filterSection.classList.toggle('hidden'); updateArrow(); });
+    updateArrow();
+  }
+
+  const container = document.getElementById('ball-by-ball-container');
+  const filterButtonsContainer = document.getElementById('ball-by-ball-filters');
+
+  // the page embeds all balls JSON in a hidden element with id="ball-data"
+  const allBalls = JSON.parse(document.getElementById('ball-data')?.textContent || '[]');
+  let currentFilteredBalls = allBalls.slice();
+
+  // -------- helpers --------
+  function openPlayerWithDeliveries(deliveryIds, sampleBall, metricLabel = '') {
+    if (!sampleBall || !sampleBall.scrM_MatchName) {
+      alert('⚠️ Missing match information.');
+      return;
+    }
+    const qs = new URLSearchParams({
+      match_id: sampleBall.scrM_MatchName,            // match folder
+      inning_id: sampleBall.scrM_InningNo || '',      // inning (optional)
+      metric: metricLabel || ''                       // purely informational for the player header
+    });
+    // pass explicit deliveries so backend loads only these
+    qs.set('delivery_ids', deliveryIds.join(','));
+    window.open(`/video_player?${qs.toString()}`, '_blank');
+  }
+
+  function renderBalls(ballsToRender) {
+    container.innerHTML = '';
+    currentFilteredBalls = ballsToRender.slice();
+
+    if (!currentFilteredBalls.length) {
+      container.innerHTML = '<p class="text-center text-slate-600 dark:text-zink-200">No matching ball-by-ball data available.</p>';
+      return;
+    }
+
+    // Track ball number within each over for proper sequence
+    let overBallCounts = {};
+
+    currentFilteredBalls.forEach((ball) => {
+      const wicketClass = (ball.scrM_IsWicket == 1)
+        ? 'bg-red-500'
+        : ((ball.scrM_IsBoundry == 1 || ball.scrM_IsSixer == 1) ? 'bg-custom-500' : 'bg-slate-800 text-white');
+
+      const havePitch = (ball.scrM_PitchX != null && ball.scrM_PitchY != null
+                         && String(ball.scrM_PitchX).toLowerCase() !== 'nan'
+                         && String(ball.scrM_PitchY).toLowerCase() !== 'nan');
+
+      const lineLength = havePitch ? `Line/Length: ${ball.scrM_Line} / ${ball.scrM_Length}` : '';
+
+      // Calculate proper ball number within the over (1-6 sequence)
+      const overNo = ball.scrM_OverNo ?? 1;
+      const overKey = `${ball.scrM_InningNo || ''}_${overNo}`;
+      
+      if (!overBallCounts[overKey]) {
+        overBallCounts[overKey] = 0;
+      }
+      overBallCounts[overKey]++;
+      
+      const ballNumber = overBallCounts[overKey];
+
+      // the oval itself is the play button — we never check DB file columns
+      const runsBtn = `
+        <button
+          class="w-20 mx-auto text-center text-white font-bold rounded-full py-2 text-[22px] ${wicketClass}" hover:scale-105 transition"
+          data-del="${ball.scrM_DelId || ball.scrm_delid || ball.del_id || ball.delivery_id}"
+          data-match="${ball.scrM_MatchName || ''}"
+          data-inn="${ball.scrM_InningNo || ''}">
+          ${ball.scrM_IsWicket == 1 ? 'W' : (ball.scrM_BatsmanRuns ?? 0)}
+        </button>`;
+
+      const html = `
+        <div class="bg-custom-50 dark:bg-zink-700 p-3 rounded-lg">
+          <div class="flex justify-between items-center text-xs mb-2">
+            <span class="font-normal text-slate-700 dark:text-zink-100">${ball.scrM_MatchName || ''}</span>
+            <span class="text-slate-500 dark:text-zink-300">Inn: ${ball.scrM_InningNo || ''}</span>
+          </div>
+          <div class="flex items-start justify-between">
+            <div class="flex-grow">
+              <div class="flex items-center gap-4">
+                <div class="bg-custom-500 text-white rounded-md px-3 py-1 text-sm font-semibold">
+                  Over ${overNo - 1}.${ballNumber}
+                </div>
+                <div class="text-sm flex-grow font-light">
+                  <p class="font-normal text-slate-800 dark:text-zink-50">${ball.commentary || ''}</p>
+                  <div class="mt-2 border-t border-slate-200 dark:border-zink-600 pt-1">
+                    <p class="text-slate-600 dark:text-zink-200">${lineLength}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="ml-4 text-right flex-shrink-0 w-24">${runsBtn}</div>
+          </div>
+        </div>`;
+
+      container.insertAdjacentHTML('beforeend', html);
+    });
+
+    // delegate click for all newly inserted run ovals
+    container.querySelectorAll('button[data-del]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const delId = btn.dataset.del;
+        if (!delId || delId === "undefined") return;
+        const match = btn.dataset.match;
+        const inn = btn.dataset.inn;
+
+        if (!delId || !match) {
+        alert("⚠️ Missing delivery ID or match name — cannot play video.");
+        return;
+        }
+
+        // 🔥 Direct single-ball URL (no metric, no DB, pure offline delivery lookup)
+        const url = `/video_player?match_id=${encodeURIComponent(match)}&inning_id=${encodeURIComponent(inn)}&delivery_ids=${delId}`;
+        window.open(url, "_blank");
+    });
+    });
+
+  }
+
+  function applyFilter(filterType) {
+    let filtered = [];
+
+    switch (filterType) {
+      case 'all':       filtered = allBalls.slice(); break;
+      case '1':         filtered = allBalls.filter(b => b.scrM_BatsmanRuns === 1); break;
+      case '2':         filtered = allBalls.filter(b => b.scrM_BatsmanRuns === 2); break;
+      case '4':         filtered = allBalls.filter(b => b.scrM_BatsmanRuns === 4); break;
+      case '6':         filtered = allBalls.filter(b => b.scrM_IsSixer == 1); break;
+      case 'wickets':   filtered = allBalls.filter(b => b.scrM_IsWicket == 1); break;
+      case 'beaten':    filtered = allBalls.filter(b => b.scrM_IsBeaten == 1); break;
+      case 'uncomfortable': filtered = allBalls.filter(b => b.scrM_IsUncomfort == 1); break;
+      case 'last10':    filtered = allBalls.slice(-10); break;
+      case 'last20':    filtered = allBalls.slice(-20); break;
+      default:          filtered = allBalls.slice(); break;
+    }
+    return filtered;
+  }
+
+  // initial render
+  renderBalls(allBalls);
+
+  if (filterButtonsContainer) {
+    filterButtonsContainer.addEventListener('click', function (evt) {
+      const btn = evt.target.closest('button');
+      if (!btn) return;
+
+      const filt = btn.getAttribute('data-filter');
+
+      // PLAY ALL should open the player with only the currently-displayed deliveries
+        if (filt === 'play-all') {
+        if (!currentFilteredBalls.length) {
+            alert('No deliveries found to play.');
+            return;
+        }
+        const sample = currentFilteredBalls[0];
+        const ids = currentFilteredBalls.map(b =>
+            String(b.scrM_DelId || b.scrm_delid || b.scrm_del_id || b.del_id || b.delivery_id)
+        ).filter(id => id && id !== "undefined");
+
+
+        const qs = new URLSearchParams({
+            match_id: sample.scrM_MatchName,
+            inning_id: sample.scrM_InningNo,
+            metric: filt.toUpperCase(),
+            delivery_ids: ids.join(',')
+        });
+
+        window.open(`/video_player?${qs.toString()}`, "_blank");
+        return;
+        }
+
+
+      // normal filter: re-render list and highlight pill
+      const filtered = applyFilter(filt);
+      filterButtonsContainer.querySelectorAll('.filter-btn').forEach(el => {
+        if (el.dataset.filter !== 'play-all') {
+          el.classList.remove('bg-custom-500','text-white');
+          el.classList.add('bg-slate-100','text-slate-700','dark:bg-zink-600','dark:text-zink-100');
+        }
+      });
+      btn.classList.add('bg-custom-500','text-white');
+      btn.classList.remove('bg-slate-100','text-slate-700','dark:bg-zink-600','dark:text-zink-100');
+
+      renderBalls(filtered);
+    });
+  }
+});
+</script>
+
+<script>
+document.addEventListener('click', function (e) {
+  const btn = e.target.closest('.area-play');
+  if (!btn) return;
+
+  const ids = (btn.dataset.deliveryIds || '').split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const matchId = btn.dataset.match || '';
+  const inningId = btn.dataset.inning || '';
+
+  if (!matchId) {
+    alert('⚠️ Missing match info for this area.');
+    return;
+  }
+  if (ids.length === 0) {
+    alert('⚠️ No delivery IDs found for this area.');
+    return;
+  }
+
+  const qs = new URLSearchParams({
+    match_id: matchId,
+    inning_id: inningId,
+    metric: 'AREA'
+  });
+  qs.set('delivery_ids', ids.join(','));
+
+  window.open('/video_player?' + qs.toString(), '_blank');
+});
+
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.shottype-play');
+    if (!btn) return;
+
+    const ids = (btn.dataset.deliveryIds || '').split(',').filter(Boolean);
+    const matchId = btn.dataset.match;
+    const inningId = btn.dataset.inning;
+
+    if (!matchId) return alert("⚠️ Missing match info.");
+    if (ids.length === 0) return alert("⚠️ No deliveries for this shot type.");
+
+    const qs = new URLSearchParams({
+        match_id: matchId,
+        inning_id: inningId,
+        metric: 'SHOTTYPE'
+    });
+    qs.set("delivery_ids", ids.join(','));
+
+    window.open("/video_player?" + qs.toString(), "_blank");
+});
+
+document.addEventListener('click', function (e) {
+    const btn = e.target.closest('.deliverytype-play');
+    if (!btn) return;
+
+    const ids = (btn.dataset.deliveryIds || '').split(',').map(s => s.trim()).filter(Boolean);
+    const matchId = btn.dataset.match || '';
+    const inningId = btn.dataset.inning || '';
+
+    if (!matchId) {
+        alert('⚠️ Missing match info.');
+        return;
+    }
+    if (ids.length === 0) {
+        alert('No delivery IDs for this delivery type.');
+        return;
+    }
+
+    const qs = new URLSearchParams({
+        match_id: matchId,
+        inning_id: inningId,
+        metric: 'DELIVERYTYPE'
+    });
+
+    qs.set('delivery_ids', ids.join(','));
+    window.open('/video_player?' + qs.toString(), '_blank');
+});
+</script>
+
+<script>
+document.getElementById("refresh-pvp-btn")?.addEventListener("click", function () {
+    const form = document.querySelector("form");
+    if (form) {
+        form.submit();  // Regenerates Player Vs Player section
+    }
+});
+</script>
+
+<style>
+/* FINAL — Increase every ball-by-ball text by +6px */
+
+#ball-by-ball-container * {
+    font-size: 20px !important;     /* original 14 → +6px more */
+    line-height: 1.55 !important;
+    font-weight: 600 !important;
+}
+
+/* Run/Wicket oval stays original — do NOT upscale */
+#ball-by-ball-container button[data-del] {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+}
+</style>
+
+<style>
+/* Increase oval runs/wicket number also */
+#ball-by-ball-container button[data-del] {
+    font-size: 22px !important;    /* +6px ↑ */
+    font-weight: 800 !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+}
+</style>
+
+
+
+{% endblock content %}

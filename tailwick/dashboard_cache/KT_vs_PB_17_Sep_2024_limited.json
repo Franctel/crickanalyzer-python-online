@@ -1,0 +1,67 @@
+{
+  "match_header": {
+    "TournamentName": "Sync and Upload Test Series",
+    "MatchName": "KT_vs_PB_17_Sep_2024",
+    "MatchDate": "17-Sep-2024",
+    "GroundName": "MCA INTERNATIONAL STADIUM GAHUNJE PUNE",
+    "ResultText": null,
+    "DaySessionText": "Day 1 - Session 1",
+    "match_status": "PB projected score: 120.0"
+  },
+  "innings": [
+    {
+      "inn_no": 1,
+      "worm": {
+        "labels": [
+          "1.1",
+          "1.2",
+          "1.3"
+        ],
+        "values": [
+          2,
+          2,
+          6
+        ]
+      },
+      "run_rate": [
+        {
+          "scrM_OverNo": 1,
+          "runs": 6,
+          "wkts": 0,
+          "rr": 6
+        }
+      ],
+      "phase_summary": [
+        {
+          "phase": "Powerplay",
+          "runs": 6,
+          "wkts": 0
+        }
+      ],
+      "boundary_split": {
+        "dots": 1,
+        "ones": 0,
+        "twos": 1,
+        "threes": 0,
+        "fours": 1,
+        "sixes": 0
+      },
+      "bowler_economy": [
+        {
+          "scrM_PlayMIdBowlerName": "TARANJIT DHILLON",
+          "runs": 6,
+          "balls": 3,
+          "overs": 0.5,
+          "econ": 12.0
+        }
+      ],
+      "over_pressure": [
+        [
+          1,
+          6,
+          4
+        ]
+      ]
+    }
+  ]
+}

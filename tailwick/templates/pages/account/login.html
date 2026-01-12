@@ -1,0 +1,66 @@
+{% extends 'pages/account/base_account.html' %}
+{% block title %}Login{% endblock title %}
+
+{% block content %}
+
+<div class="mb-0 w-screen lg:mx-auto lg:w-[500px] card shadow-lg border-none shadow-slate-100 relative">
+    <div class="!px-10 !py-12 card-body">
+        <a href="#!">
+            <img src="{{ url_for('static', filename='images/logo-light.png') }}" alt="" class="hidden h-6 mx-auto dark:block">
+            <img src="{{ url_for('static', filename='images/logo-dark.png') }}" alt="" class="block h-6 mx-auto dark:hidden">
+        </a>
+
+        <div class="mt-8 text-center">
+            <h4 class="mb-1 text-custom-500 dark:text-custom-500">Welcome!</h4>
+            <p class="text-slate-500 dark:text-zink-200">Sign in to continue to CrickAnalyzer.</p>
+        </div>
+
+        <form method="POST" action="/account/login" class="mt-10" id="signInForm">
+            {% with messages = get_flashed_messages(with_categories=True) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        {% if category == 'success' %}
+                            <div class="px-4 py-3 mb-4 text-sm text-green-700 border border-green-200 rounded-md bg-green-50 dark:bg-green-400/20 dark:border-green-500/50 text-center">
+                                {{ message }}
+                            </div>
+                        {% elif category == 'danger' %}
+                            <div class="px-4 py-3 mb-4 text-sm text-red-600 border border-red-200 rounded-md bg-red-50 dark:bg-red-400/20 dark:border-red-500/50 text-center">
+                                {{ message }}
+                            </div>
+                        {% elif category == 'info' %}
+                            <div class="px-4 py-3 mb-4 text-sm text-blue-600 border border-blue-200 rounded-md bg-blue-50 dark:bg-blue-400/20 dark:border-blue-500/50 text-center">
+                                {{ message }}
+                            </div>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <!-- Username -->
+            <div class="mb-3">
+                <label for="username" class="inline-block mb-2 text-base font-medium">Username</label>
+                <input type="text" id="username" name="username"
+                       class="form-input border-slate-200 dark:border-zink-500 focus:outline-none focus:border-custom-500 disabled:bg-slate-100 dark:disabled:bg-zink-600 disabled:border-slate-300 dark:disabled:border-zink-500 dark:disabled:text-zink-200 disabled:text-slate-500 dark:text-zink-100 dark:bg-zink-700 dark:focus:border-custom-800 placeholder:text-slate-400 dark:placeholder:text-zink-200"
+                       placeholder="Enter username" required>
+            </div>
+
+            <!-- Password -->
+            <div class="mb-3">
+                <label for="password" class="inline-block mb-2 text-base font-medium">Password</label>
+                <input type="password" id="password" name="password"
+                       class="form-input border-slate-200 dark:border-zink-500 focus:outline-none focus:border-custom-500 disabled:bg-slate-100 dark:disabled:bg-zink-600 disabled:border-slate-300 dark:disabled:border-zink-500 dark:disabled:text-zink-200 disabled:text-slate-500 dark:text-zink-100 dark:bg-zink-700 dark:focus:border-custom-800 placeholder:text-slate-400 dark:placeholder:text-zink-200"
+                       placeholder="Enter password" required>
+            </div>
+
+            <!-- Submit Button -->
+            <div class="mt-10">
+                <button type="submit"
+                        class="w-full text-white btn bg-custom-500 border-custom-500 hover:text-white hover:bg-custom-600 hover:border-custom-600 focus:text-white focus:bg-custom-600 focus:border-custom-600 focus:ring focus:ring-custom-100 active:text-white active:bg-custom-600 active:border-custom-600 active:ring active:ring-custom-100 dark:ring-custom-400/20">
+                    Sign In
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock content %}

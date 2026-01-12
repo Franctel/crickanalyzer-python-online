@@ -1,0 +1,110 @@
+{% extends "partials/base.html" %}
+{% block title %}Limited Overs Dashboard{% endblock title %}
+
+{% block content %}
+<div class="grid xl:grid-cols-12 grid-cols-1 gap-5">
+
+  <!-- 🏏 Header -->
+  <div class="xl:col-span-12">
+    <div class="card">
+      <div class="card-body">
+        <div class="flex flex-wrap items-center justify-between">
+          <div>
+            <h5 class="text-lg font-semibold">
+              {{ match_header.MatchName or "Limited Overs Dashboard" }}
+            </h5>
+            <p class="text-slate-600 dark:text-zinc-100">
+              {{ match_header.GroundName or "" }}
+            </p>
+          </div>
+          <div class="px-3 py-1 rounded-md bg-custom-500 text-white">
+            {{ match_header.match_status or "Status: Pending" }}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🟦 1️⃣ Run Progression -->
+  <div class="xl:col-span-6">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-4">Run Progression (Cumulative Runs)</h6>
+        <div id="chart_worm" class="apex-charts" dir="ltr"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🟩 2️⃣ Run Rate Comparison -->
+  <div class="xl:col-span-6">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-4">Run Rate by Over</h6>
+        <div id="chart_run_rate" class="apex-charts" dir="ltr"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🟨 3️⃣ Phase Summary -->
+  <div class="xl:col-span-12">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-4">Phase Summary (Powerplay / Middle / Death Overs)</h6>
+        <div id="chart_phase_summary" class="apex-charts" dir="ltr"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🟧 4️⃣ Boundary Split -->
+  <div class="xl:col-span-6">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-4">Boundary Split</h6>
+        <div id="chart_boundary_split" class="apex-charts" dir="ltr"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🟪 5️⃣ Bowler Economy -->
+  <div class="xl:col-span-6">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-4">Bowler Economy (Top 5 Bowlers)</h6>
+        <div id="chart_bowler_econ" class="apex-charts" dir="ltr"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🟥 6️⃣ Over Pressure -->
+  <div class="xl:col-span-12">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-4">Over Pressure (x=Over, y=Runs, size=Wickets)</h6>
+        <div id="chart_over_pressure" class="apex-charts" dir="ltr"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_content %}
+<!-- ApexCharts Library -->
+<script src="{{ url_for('static', filename='libs/apexcharts/apexcharts.min.js') }}"></script>
+
+{% if match_header %}
+<script>
+  // ✅ Setup match name and JSON endpoint
+  const matchName = "{{ match_header.MatchName | default('', true) }}";
+  const dataUrl = `/apps/limited-dashboard/json/${encodeURIComponent(matchName)}`;
+
+  console.log("📊 Using dataUrl:", dataUrl);
+
+  // ✅ Make config available globally
+  window.LIMITED_DASHBOARD_CONFIG = { matchName, dataUrl };
+</script>
+
+<!-- ✅ Include Limited Overs chart initialization script -->
+<script src="{{ url_for('static', filename='js/pages/limited-dashboard.init.js') }}"></script>
+{% endif %}
+{% endblock %}

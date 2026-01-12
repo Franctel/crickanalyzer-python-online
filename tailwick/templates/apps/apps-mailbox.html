@@ -1,0 +1,2728 @@
+{% extends 'partials/base.html' %}
+
+{% block title %}MATCH CENTER{% endblock title %}
+{% block content %}
+
+<div class="order-6 col-span-12 2xl:order-1 card 2xl:col-span-12">
+    <div class="card-body">
+        <!-- Toggle Button -->
+        <button type="button" id="toggle-filter-btn"
+            class="flex items-center justify-between w-full px-4 py-2 mb-4 text-sm font-medium text-left text-white bg-custom-500 rounded-md hover:bg-custom-600 focus:outline-none focus-visible:ring focus-visible:ring-custom-500 focus-visible:ring-opacity-75">
+            <span>Filters</span>
+            <svg id="filter-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                class="w-5 h-5 transition-transform duration-200">
+                <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+        </button>
+
+        <!-- Filter Section -->
+        <div id="filter-section">
+            <form id="filter-form" method="GET" action="" class="flex flex-col gap-3 md:flex-row md:items-end md:gap-4">
+
+                <!-- Tournament -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="tournament" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Tournament</label>
+                    <select id="tournament" name="tournament" onchange="this.form.submit()" 
+                            class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <option value="" disabled {% if not selected_tournament %}selected{% endif %}>Select Tournament</option>
+                        {% for t in tournaments %}
+                        <option value="{{ t.value }}" {% if selected_tournament|int == t.value %}selected{% endif %}>
+                            {{ t.label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Team -->
+                <div class="relative w-full md:w-1/4">
+                    <label for="team" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Team</label>
+                    <select id="team" name="team" onchange="this.form.submit()" 
+                            class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <option disabled {% if not selected_team %}selected{% endif %}>Select Team</option>
+                        {% for team in teams %}
+                        <option value="{{ team }}" {% if selected_team == team %}selected{% endif %}>{{ team }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Matches -->
+                <div class="relative w-full md:w-1/2">
+                    <label for="matches" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Matches</label>
+                    <select id="matches" name="match" onchange="this.form.submit()" 
+                            class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <option disabled {% if not selected_match %}selected{% endif %}>Select Match</option>
+                        {% for m in matches %}
+                        <option value="{{ m }}" {% if selected_match == m %}selected{% endif %}>{{ m }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Radio Buttons -->
+                <div class="flex flex-col gap-2 md:w-1/5 md:self-end mt-4">
+                    <label class="inline-flex items-center">
+                        <input type="radio" name="view_type" value="scorecard" class="form-radio text-custom-500"
+                            {% if request.values.get('view_type', 'scorecard') == 'scorecard' %}checked{% endif %}
+                            onchange="document.getElementById('filter-form').action='{{ url_for('apps.mailbox_filters') }}'; this.form.submit();">
+                        <span class="ml-2 text-slate-700 dark:text-zink-100">Scorecard</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                      <input id="view_report" type="radio" name="view_type" value="report"
+                        {% if request.values.get('view_type') == 'report' %}checked{% endif %}
+                        onclick="this.form.action='{{ url_for('apps.match_reports') }}'; this.form.submit();">
+                        <span class="ml-2 text-slate-700 dark:text-zink-100">Report</span>
+                    </label>
+                </div>
+
+                <!-- Generate Button -->
+                <!-- Generate & View Dashboard Buttons -->
+                <div class="relative flex w-full md:w-2/5 gap-3 mt-6">
+                  <button type="submit"
+                      class="h-[42px] px-6 btn bg-custom-500 text-white hover:bg-custom-600 focus:ring focus:ring-custom-200 dark:bg-custom-400 dark:hover:bg-custom-500">
+                      Generate
+                  </button>
+
+                  <button type="button" id="view-dashboard-btn"
+                      class="h-[42px] px-6 btn bg-emerald-500 text-white hover:bg-emerald-600 focus:ring focus:ring-emerald-200 dark:bg-emerald-400 dark:hover:bg-emerald-500">
+                      View Dashboard
+                  </button>
+                </div>
+
+                <script>
+                document.getElementById("view-dashboard-btn").addEventListener("click", async function() {
+                    const tournament = document.getElementById("tournament")?.value?.trim() || "";
+                    const team = document.getElementById("team")?.value?.trim() || "";
+                    const match = document.getElementById("matches")?.value?.trim() || "";
+
+                    if (!tournament || !team || !match) {
+                        alert("Please select Tournament, Team, and Match before viewing dashboard.");
+                        return;
+                    }
+
+                    // ✅ Fetch format for this tournament
+                    const resp = await fetch(`/apps/api/tournament-format?tournament=${tournament}`);
+                    const data = await resp.json();
+                    const format = (data.format || "").toLowerCase();
+
+                    console.log("🎯 Tournament format detected:", format);
+
+                    let url;
+                    if (format.includes("multi")) {
+                        url = `/apps/multiday-dashboard/view?match=${encodeURIComponent(match)}&team=${encodeURIComponent(team)}&tournament=${encodeURIComponent(tournament)}`;
+                    } else {
+                        url = `/apps/limited-dashboard/view?match=${encodeURIComponent(match)}&team=${encodeURIComponent(team)}&tournament=${encodeURIComponent(tournament)}`;
+                    }
+
+                    window.open(url, "_blank");
+                });
+                </script>
+
+
+
+
+
+            </form>
+        </div>
+    </div>
+</div>
+
+
+
+<!-- Scorecard Section -->
+<!-- Scorecard Section -->
+{% if match_header and request.values.get('view_type','scorecard') == 'scorecard' %}
+<div class="order-6 card mx-auto w-full sm:w-11/12 md:w-10/12 lg:w-3/5 mt-6">
+  <div class="card-body">
+    <h5 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Scorecard</h5>
+
+    <!-- Inner card (Match Header) -->
+    <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl">
+      <div class="card-body text-center space-y-4 text-slate-900 dark:text-white">
+        <h6 class="text-md font-semibold">{{ match_header.TournamentName }}</h6>
+        <p>{{ match_header.DaySessionText }}</p>
+        <p>{{ match_header.MatchName }}</p>
+        <p>{{ match_header.GroundName }}</p>
+
+        <!-- Innings summary -->
+        {% if match_innings %}
+        <div class="flex items-center justify-center mt-6 gap-8">
+          <div class="text-center space-y-3">
+            {% for inn in match_innings if inn.Inn_Inning in [1,3] %}
+            <div>
+              <p class="font-bold">{{ inn.TeamShortName }}</p>
+              <p>Innings {{ inn.Inn_Inning }}: {{ inn.Inn_TotalRuns }}/{{ inn.Inn_Wickets }} ({{ inn.Inn_Overs }} Ov)</p>
+            </div>
+            {% endfor %}
+          </div>
+          <div><img src="{{ url_for('static', filename='VS.png') }}" class="h-12 mx-auto" alt="VS"></div>
+          <div class="text-center space-y-3">
+            {% for inn in match_innings if inn.Inn_Inning in [2,4] %}
+            <div>
+              <p class="font-bold">{{ inn.TeamShortName }}</p>
+              <p>Innings {{ inn.Inn_Inning }}: {{ inn.Inn_TotalRuns }}/{{ inn.Inn_Wickets }} ({{ inn.Inn_Overs }} Ov)</p>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <p class="text-center mt-6 font-semibold text-white bg-custom-500 rounded-md py-2">
+          {{ MatchStatus if MatchStatus else (match_header.ResultText if match_header.ResultText else "Match Result Not Available") }}
+        </p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Last 12 deliveries -->
+    {% if last_12_balls %}
+    <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+      <div class="card-body">
+        <h5 class="text-md font-semibold text-slate-700 dark:text-zink-100 mb-3">Last 12 Deliveries</h5>
+        <div class="flex flex-wrap justify-center gap-2">
+          {% for ball in last_12_balls %}
+            {% if ball == 'W' %}
+              <span class="w-8 h-8 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold">W</span>
+            {% elif ball|int(default=-1) >= 0 %}
+              <span class="w-8 h-8 flex items-center justify-center rounded-full border border-slate-400 text-slate-700 dark:text-zink-100 text-xs font-semibold">{{ ball }}</span>
+            {% else %}
+              <span class="w-10 h-8 flex items-center justify-center rounded-full border border-slate-400 text-slate-700 dark:text-zink-100 text-xs font-semibold">{{ ball }}</span>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Tabs Card -->
+    <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+      <div class="card-body">
+        <div class="flex space-x-6 border-b border-slate-200 dark:border-zink-600">
+          <button class="top-tab pb-2 text-sm font-medium border-b-2 border-custom-500 text-custom-500" data-tab="scorecard">Scorecard</button>
+        </div>
+
+        <!-- Innings Buttons -->
+        <div class="flex flex-wrap gap-2 mt-4">
+          {% for inn, data in scorecard_data.items() %}
+            {% set label = (data.meta.TeamShortName or data.meta.TeamName or 'Team') ~ ' ' ~ inn ~ ' Inns' %}
+            <button class="inning-tab px-4 py-1.5 rounded-full text-sm font-medium {% if loop.first %}bg-custom-500 text-white{% else %}bg-slate-200 dark:bg-zink-700 text-slate-700 dark:text-zink-200{% endif %}"
+                    data-inning="{{ inn }}">
+              {{ label }}
+            </button>
+          {% endfor %}
+        </div>
+
+        <!-- Inning Scorecards -->
+        <!-- Inning Scorecards -->
+        {% for inn, data in scorecard_data.items() %}
+          <div class="inning-scorecard mt-6 {% if not loop.first %} hidden {% endif %}" id="inning-{{ inn }}">
+
+            <!-- Batters -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl">
+              <div class="card-body">
+                <h6 class="font-semibold mb-3 text-slate-700 dark:text-zink-100">Batters</h6>
+
+                <!-- Header -->
+                <div class="flex items-center justify-between px-4 py-2 border-b border-slate-300 dark:border-zink-600 font-semibold text-slate-700 dark:text-zink-100">
+                  <!-- Removed Batter text -->
+                  <div class="w-2/5"></div>
+                  <div class="flex gap-8 w-3/5 justify-end text-sm">
+                    <div class="w-8 text-center">R</div>
+                    <div class="w-8 text-center">B</div>
+                    <div class="w-8 text-center">4's</div>
+                    <div class="w-8 text-center">6's</div>
+                    <div class="w-10 text-center">SR</div>
+                  </div>
+                </div>
+
+                <!-- Player rows -->
+                {% if data.batters and data.batters|length > 0 %}
+                  {% for batter in data.batters %}
+                  <div class="bg-white dark:bg-zink-800 shadow rounded-lg mb-2 p-4">
+                    <details class="group batter-details">
+                      <summary class="cursor-pointer list-none w-full">
+
+                        <!-- 🔹 TOP ROW: 40% left (SR + Image + Name) | 60% right (Stats) -->
+                        <div class="flex items-center justify-between w-full">
+
+                          <!-- LEFT 40% -->
+                          <div class="flex items-center gap-3 w-2/5">
+                            <!-- SR number -->
+                            <div class="w-5 text-center font-bold text-slate-700 dark:text-zink-100 flex-shrink-0">
+                              {{ loop.index }}
+                            </div>
+
+                            <!-- Profile picture -->
+                            <img src="{{ url_for('static', filename='Default-M.png') }}" 
+                                class="w-10 h-10 rounded-full flex-shrink-0" 
+                                alt="{{ batter.name }}">
+
+                            <!-- Batter name -->
+                            <h3 class="font-semibold text-base leading-tight truncate">
+                              {{ batter.name }}
+                            </h3>
+                          </div>
+
+                          <!-- RIGHT 60% (Stats) -->
+                          <div class="flex gap-8 w-3/5 justify-end text-sm font-medium">
+                            <div class="w-8 text-center metric-cell"
+                                data-batter="{{ batter.id }}"
+                                data-player-name="{{ batter.player_name }}"
+                                data-metric="runs"
+                                data-value="{{ batter.runs }}"
+                                data-match="{{ match_header.MatchName }}"
+                                data-inning="{{ inn }}">
+                              {{ batter.runs }}
+                            </div>
+
+                            <div class="w-8 text-center metric-cell"
+                                data-batter="{{ batter.id }}"
+                                data-player-name="{{ batter.player_name }}"
+                                data-metric="balls"
+                                data-value="{{ batter.balls }}"
+                                data-match="{{ match_header.MatchName }}"
+                                data-inning="{{ inn }}">
+                              {{ batter.balls }}
+                            </div>
+
+                            <div class="w-8 text-center metric-cell"
+                                data-batter="{{ batter.id }}"
+                                data-player-name="{{ batter.player_name }}"
+                                data-metric="fours"
+                                data-value="{{ batter.fours }}"
+                                data-match="{{ match_header.MatchName }}"
+                                data-inning="{{ inn }}">
+                              {{ batter.fours }}
+                            </div>
+
+                            <div class="w-8 text-center metric-cell"
+                                data-batter="{{ batter.id }}"
+                                data-player-name="{{ batter.player_name }}"
+                                data-metric="sixes"
+                                data-value="{{ batter.sixes }}"
+                                data-match="{{ match_header.MatchName }}"
+                                data-inning="{{ inn }}">
+                              {{ batter.sixes }}
+                            </div>
+
+                            <div class="w-10 text-center">
+                              {{ batter.sr }}
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- 🔹 SECOND ROW: dismissal text (100%) -->
+                        <div class="mt-1 text-sm text-gray-500 text-left ml-[4.5rem]">
+                          {{ batter.dismissal }}
+                        </div>
+
+                      </summary>
+
+
+
+                      <div class="mt-2">
+                        <div class="flex flex-col lg:flex-row gap-6">
+                          <!-- Left Column: Metrics & Bowler Table -->
+                          <div class="flex-[0_0_70%]">
+                            <div class="grid grid-cols-3 gap-3 text-sm mb-4">
+                              <div class="bg-slate-100 dark:bg-zink-700 rounded-md p-3 text-center"><p class="font-medium">BDRY%</p><p>{{ batter.bdry_pct }}</p></div>
+                              <div class="bg-slate-100 dark:bg-zink-700 rounded-md p-3 text-center"><p class="font-medium">BDRY Freq</p><p>{{ batter.bdry_freq }}</p></div>
+                              <div class="bg-slate-100 dark:bg-zink-700 rounded-md p-3 text-center"><p class="font-medium">Dot Balls</p><p>{{ batter.dots }}</p></div>
+                              <div class="bg-slate-100 dark:bg-zink-700 rounded-md p-3 text-center"><p class="font-medium">DB%</p><p>{{ batter.db_pct }}</p></div>
+                              <div class="bg-slate-100 dark:bg-zink-700 rounded-md p-3 text-center"><p class="font-medium">DB Freq</p><p>{{ batter.db_freq }}</p></div>
+                              <div class="bg-slate-100 dark:bg-zink-700 rounded-md p-3 text-center"><p class="font-medium">SR</p><p>{{ batter.sr }}</p></div>
+                            </div>
+
+                            <div class="card mt-4">
+                              <div class="card-body">
+                                <div class="overflow-x-auto">
+                                  <table class="w-full bg-custom-50 dark:bg-custom-500/10">
+                                    <thead class="bg-custom-100 dark:bg-custom-500/10">
+                                      <tr>
+                                        <th class="px-3.5 py-2.5 font-semibold">Bowler</th>
+                                        <th class="px-3.5 py-2.5 font-semibold text-center">R(B)</th>
+                                        <th class="px-3.5 py-2.5 font-semibold text-center">Dots</th>
+                                        <th class="px-3.5 py-2.5 font-semibold text-center">1s</th>
+                                        <th class="px-3.5 py-2.5 font-semibold text-center">2s</th>
+                                        <th class="px-3.5 py-2.5 font-semibold text-center">4s</th>
+                                        <th class="px-3.5 py-2.5 font-semibold text-center">6s</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {% for row in batter.bowler_table %}
+                                      <tr>
+                                        <td class="px-3.5 py-2.5">{{ row.bowler }}</td>
+                                        <td class="px-3.5 py-2.5 text-center">{{ row.runs }}({{ row.balls }})</td>
+                                        <td class="px-3.5 py-2.5 text-center">{{ row.dots }}</td>
+                                        <td class="px-3.5 py-2.5 text-center">{{ row.ones }}</td>
+                                        <td class="px-3.5 py-2.5 text-center">{{ row.twos }}</td>
+                                        <td class="px-3.5 py-2.5 text-center">{{ row.fours }}</td>
+                                        <td class="px-3.5 py-2.5 text-center">{{ row.sixes }}</td>
+                                      </tr>
+                                      {% endfor %}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <!-- Right Column (Wagon Wheel + Legends) -->
+                          <div class="flex-[0_0_30%] flex flex-col items-center">
+                            {% set ww = batter.wagon_wheel if batter.wagon_wheel is defined else {} %}
+                            {% if ww and ww.get('all') %}
+                              <img id="wagon-wheel-img-{{ batter.id }}"
+                                  src="data:image/png;base64,{{ ww.get('all') }}"
+                                  alt="{{ batter.hand }} Hand Wagon Wheel"
+                                  class="rounded-md mb-4"
+                                  style="width:300px; height:300px; object-fit:contain;">
+                            {% else %}
+                              <img id="wagon-wheel-img-{{ batter.id }}"
+                                  src="{{ url_for('static', filename='DefaultWheel.png') }}"
+                                  alt="Default Wagon Wheel"
+                                  class="rounded-md mb-4"
+                                  style="width:300px; height:300px; object-fit:contain;">
+                            {% endif %}
+
+                            <!-- Capsule Legend -->
+                            <div class="flex justify-center flex-wrap gap-3 mt-3 text-sm">
+                              {% set color_map = {1: '#1E90FF', 2: '#00FF7F', 3: '#FFD700', 4: '#FFA500', 6: '#FF0000'} %}
+                              {% for rt in [1,2,3,4,6] %}
+                                {% set key = rt|string %}
+                                {% set img_b64 = ww.get(key) if ww else None %}
+                                <div class="filter-pill flex w-[110px] h-[40px] items-center justify-center cursor-pointer font-medium rounded-lg shadow"
+                                    data-run="{{ key }}"
+                                    data-batter="{{ batter.id }}"
+                                    data-img="{{ img_b64 if img_b64 else '' }}"
+                                    style="background:{{ color_map[rt] }}; border:2px solid {{ color_map[rt] }}; color:{% if rt in [1,6] %}#fff{% else %}#000{% endif %};"
+                                    onclick="switchWheel(this, 'wagon-wheel-img-{{ batter.id }}')">
+                                  {{ key }}s ({{ batter[key ~ 's'] if (key ~ 's') in batter else (batter.ones if key=='1' else (batter.twos if key=='2' else (batter.threes if key=='3' else (batter.fours if key=='4' else batter.sixes)))) }})
+                                </div>
+                              {% endfor %}
+                              <div class="filter-pill flex w-[110px] h-[40px] items-center justify-center cursor-pointer font-medium rounded-lg shadow"
+                                  data-run="all"
+                                  data-batter="{{ batter.id }}"
+                                  data-img="{{ ww.get('all') if ww else '' }}"
+                                  style="background:#444; border:2px solid #444; color:#fff;"
+                                  onclick="switchWheel(this, 'wagon-wheel-img-{{ batter.id }}')">
+                                All
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </details>
+                  </div>
+                  {% endfor %}
+                {% else %}
+                  <p class="text-red-500 text-center">No batting data available</p>
+                {% endif %}
+
+              </div>
+            </div>
+
+
+            <!-- ================= Fall of Wickets ================= -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-4 inning-fow {% if not loop.first %}hidden{% endif %}" id="inning-fow-{{ inn }}">
+              <div class="card-body">
+                <h6 class="font-semibold mb-3 text-slate-700 dark:text-zink-100">Fall of Wickets</h6>
+                {% if data.fall_of_wickets and data.fall_of_wickets|length > 0 %}
+                  <div class="flex flex-wrap gap-3">
+                    {% for w in data.fall_of_wickets %}
+                    <div class="flex flex-col items-center justify-center w-[100px] h-[70px] bg-slate-100 dark:bg-zink-700 rounded-md shadow-sm">
+                      <p class="font-bold text-slate-800 dark:text-zink-100">{{ w.runs }}-{{ w.wkt_no }}</p>
+                      <p class="text-xs text-slate-600 dark:text-zink-300">{{ w.batter }}</p>
+                      <p class="text-xs text-slate-600 dark:text-zink-300">({{ w.over_str }})</p>
+                    </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <p class="text-red-500 text-center">No FOW data available</p>
+                {% endif %}
+              </div>
+            </div>
+
+            <!-- ================= Inning Summary ================= -->
+            {% if data.meta %}
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6 inning-summary {% if not loop.first %}hidden{% endif %}" id="inning-summary-{{ inn }}">
+              <div class="card-body">
+                <div class="flex justify-between items-center border-b pb-2 mb-3">
+                  <h6 class="font-semibold text-gray-800">Total</h6>
+                  <span class="font-bold text-lg">
+                    {{ data.meta.TotalRuns }}
+                    <span class="text-sm font-normal text-gray-600">({{ data.meta.TotalOvers }} Ov)</span>
+                  </span>
+                </div>
+                <div class="flex justify-between items-center bg-gray-100 p-2 rounded mb-2">
+                  <span><strong>Extras :</strong> {{ data.meta.Extras }}</span>
+                  <span class="text-sm">(Nb {{ data.meta.Nb }}, W {{ data.meta.Wd }}, B {{ data.meta.Bye }}, Lb {{ data.meta.Lb }}, P {{ data.meta.Penalty }})</span>
+                </div>
+                <div class="flex justify-between items-center bg-gray-100 p-2 rounded">
+                  <span><strong>CRR :</strong> {{ data.meta.CRR }}</span>
+                  <span class="font-semibold">HIGHEST P'SHIP : {{ data.meta.HighestPartnership }}</span>
+                </div>
+              </div>
+            </div>
+            {% endif %}
+
+            <!-- ================= Bowling Scorecard ================= -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-4">
+              <div class="card-body">
+                <h6 class="font-semibold mb-3 text-slate-700 dark:text-zink-100">Bowlers</h6>
+
+                <!-- Header Row -->
+                <div class="flex items-center justify-between text-sm font-semibold px-4 py-2 border-b border-slate-200 dark:border-zink-700">
+                  <div class="w-[52%]"></div>
+                  <div class="flex gap-8 w-[48%] justify-end">
+                    <div class="w-8 text-center">O</div>
+                    <div class="w-8 text-center">M</div>
+                    <div class="w-8 text-center">R</div>
+                    <div class="w-8 text-center">W</div>
+                    <div class="w-10 text-center">E/R</div>
+                    <div class="w-8 text-center">D</div>
+                  </div>
+                </div>
+
+                {% if data.bowlers and data.bowlers|length > 0 %}
+                  {% for bowler in data.bowlers %}
+                  <div class="bg-white dark:bg-zink-800 shadow rounded-lg mb-2 p-4">
+                    <details class="group bowler-details">
+                      <summary class="flex items-center justify-between cursor-pointer list-none">
+                        <!-- Left: Bowler Info -->
+                        <div class="flex items-center gap-3 w-[52%]">
+                          <img src="{{ url_for('static', filename='Default-M.png') }}" 
+                              class="w-10 h-10 rounded-full"
+                              alt="{{ bowler.name }}">
+                          <h3 class="font-semibold text-base">{{ bowler.name }}</h3>
+                        </div>
+
+                        <!-- Right: Stats (aligned with Batter) -->
+                        <div class="flex gap-8 w-[48%] justify-end text-sm font-medium">
+                          <div class="w-8 text-center metric-cell"
+                              data-bowler="{{ bowler.id }}"
+                              data-player-name="{{ bowler.player_name }}"
+                              data-metric="O"
+                              data-value="{{ bowler.overs }}"
+                              data-match="{{ match_header.MatchName }}"
+                              data-inning="{{ inn }}">
+                            {{ bowler.overs }}
+                          </div>
+
+                          <div class="w-8 text-center">
+                            {{ bowler.maidens }}
+                          </div>
+
+                          <div class="w-8 text-center metric-cell"
+                              data-bowler="{{ bowler.id }}"
+                              data-player-name="{{ bowler.player_name }}"
+                              data-metric="R"
+                              data-value="{{ bowler.runs }}"
+                              data-match="{{ match_header.MatchName }}"
+                              data-inning="{{ inn }}">
+                            {{ bowler.runs }}
+                          </div>
+
+                          <div class="w-8 text-center metric-cell"
+                              data-bowler="{{ bowler.id }}"
+                              data-player-name="{{ bowler.player_name }}"
+                              data-metric="W"
+                              data-value="{{ bowler.wickets }}"
+                              data-match="{{ match_header.MatchName }}"
+                              data-inning="{{ inn }}">
+                            {{ bowler.wickets }}
+                          </div>
+
+                          <div class="w-10 text-center">
+                            {{ bowler.econ }}
+                          </div>
+
+                          <div class="w-8 text-center metric-cell"
+                              data-bowler="{{ bowler.id }}"
+                              data-player-name="{{ bowler.player_name }}"
+                              data-metric="D"
+                              data-value="{{ bowler.dots }}"
+                              data-match="{{ match_header.MatchName }}"
+                              data-inning="{{ inn }}">
+                            {{ bowler.dots }}
+                          </div>
+                        </div>
+                      </summary>
+                      <div class="mt-3">
+                        <div class="grid grid-cols-3 gap-3 text-sm mb-3">
+                          <div class="bg-slate-100 dark:bg-zink-700 rounded-md p-3 text-center">
+                            <p class="font-medium">BDRY%</p>
+                            <p>{{ bowler.bdry_pct }}</p>
+                          </div>
+                          <div class="bg-slate-100 dark:bg-zink-700 rounded-md p-3 text-center">
+                            <p class="font-medium">BDRY Freq</p>
+                            <p>{{ bowler.bdry_freq }}</p>
+                          </div>
+                          <div class="bg-slate-100 dark:bg-zink-700 rounded-md p-3 text-center">
+                            <p class="font-medium">DB%</p>
+                            <p>{{ bowler.db_pct }}</p>
+                          </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3 text-sm mb-4">
+                          <div class="bg-slate-100 dark:bg-zink-700 rounded-md p-3 text-center">
+                            <p class="font-medium">DB Freq</p>
+                            <p>{{ bowler.db_freq }}</p>
+                          </div>
+                          <div class="bg-slate-100 dark:bg-zink-700 rounded-md p-3 text-center">
+                            <p class="font-medium">Economy</p>
+                            <p>{{ bowler.econ }}</p>
+                          </div>
+                        </div>
+
+                        <!-- Bowler vs Batters Table -->
+                        {% if bowler.vs_batters and bowler.vs_batters|length > 0 %}
+                        <div class="card mt-4">
+                          <div class="card-body">
+                            <div class="overflow-x-auto">
+                              <table class="w-full bg-custom-50 dark:bg-custom-500/10">
+                                <thead class="bg-custom-100 dark:bg-custom-500/10">
+                                  <tr>
+                                    <th class="px-3.5 py-2.5 text-left font-semibold">{{ bowler.name }} vs Batters</th>
+                                    <th class="px-3.5 py-2.5 text-center font-semibold">B</th>
+                                    <th class="px-3.5 py-2.5 text-center font-semibold">R</th>
+                                    <th class="px-3.5 py-2.5 text-center font-semibold">W</th>
+                                    <th class="px-3.5 py-2.5 text-center font-semibold">WD</th>
+                                    <th class="px-3.5 py-2.5 text-center font-semibold">NB</th>
+                                    <th class="px-3.5 py-2.5 text-center font-semibold">Econ</th>
+                                    <th class="px-3.5 py-2.5 text-center font-semibold">4s</th>
+                                    <th class="px-3.5 py-2.5 text-center font-semibold">6s</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {% for row in bowler.vs_batters %}
+                                  <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                                    <td class="px-3.5 py-2.5">{{ row.batter }}</td>
+                                    <td class="text-center">{{ row.balls }}</td>
+                                    <td class="text-center">{{ row.runs }}</td>
+                                    <td class="text-center">{{ row.wickets }}</td>
+                                    <td class="text-center">{{ row.wd }}</td>
+                                    <td class="text-center">{{ row.nb }}</td>
+                                    <td class="text-center">{{ row.econ }}</td>
+                                    <td class="text-center">{{ row.fours }}</td>
+                                    <td class="text-center">{{ row.sixes }}</td>
+                                  </tr>
+                                  {% endfor %}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                        {% else %}
+                          <p class="text-red-500 text-center mt-2">No bowler vs batter data available</p>
+                        {% endif %}
+                      </div>
+                    </details>
+                  </div>
+                  {% endfor %}
+                {% else %}
+                  <p class="text-red-500 text-center">No bowling data available</p>
+                {% endif %}
+              </div>
+            </div>
+
+            <!-- ================= Partnership Chart ================= -->
+            {% if data.partnership_chart %}
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-semibold mb-3 text-slate-700 dark:text-zink-100">
+                  Partnership Chart
+                  {% if data.meta.TeamShortName or data.meta.TeamName %}
+                    - {{ data.meta.TeamShortName or data.meta.TeamName }}
+                  {% endif %}
+                </h6>
+                <div class="overflow-x-auto">
+                  <div class="partnership-chart-container">
+                    {{ data.partnership_chart | safe }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            {% else %}
+              <p class="text-red-500 text-center mt-2">No Partnership Data Available</p>
+            {% endif %}
+
+          </div>
+        {% endfor %}
+
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endif %}
+
+<script>
+function switchWheel(button, imgId) {
+  try {
+    const runType = button.getAttribute("data-run") || 'all';
+    const batterId = button.getAttribute("data-batter");
+    const embedded = button.getAttribute("data-img");
+    const imgElem = document.getElementById(imgId);
+
+    if (!imgElem) {
+      console.error("Wagon wheel image element not found:", imgId);
+      return;
+    }
+
+    if (embedded && embedded.length > 10) {
+      imgElem.src = "data:image/png;base64," + embedded;
+      return;
+    }
+
+    if (!batterId) {
+      console.error("Missing data-batter attribute on pill");
+      return;
+    }
+
+    fetch(`/wagonwheel?batter_id=${encodeURIComponent(batterId)}&runType=${encodeURIComponent(runType)}`)
+      .then(res => {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(data => {
+        if (data.img && data.img.length > 10) {
+          imgElem.src = "data:image/png;base64," + data.img;
+        } else {
+          console.warn("No image returned from wagonwheel endpoint for", batterId, runType);
+        }
+      })
+      .catch(err => console.error("Wagon wheel fetch failed:", err));
+  } catch (err) {
+    console.error("switchWheel error:", err);
+  }
+}
+
+// ================= Context Menu =================
+let currentTarget = null;
+
+document.addEventListener("contextmenu", function(e) {
+  const cell = e.target.closest(".metric-cell");
+  if (cell) {
+    const metric = cell.dataset.metric;
+
+    // ❌ Skip non-actionable metrics
+    if (["sr", "M", "E/R"].includes(metric)) return;
+
+    e.preventDefault();
+    currentTarget = cell;
+    const menu = document.getElementById("context-menu");
+    menu.style.top = e.pageY + "px";
+    menu.style.left = e.pageX + "px";
+    menu.classList.remove("hidden");
+  } else {
+    document.getElementById("context-menu").classList.add("hidden");
+  }
+});
+
+document.addEventListener("click", function() {
+  document.getElementById("context-menu").classList.add("hidden");
+});
+
+// ================= Handle Play & Download =================
+function handleContextAction(action) {
+  if (!currentTarget) return;
+
+  const batterId = currentTarget.dataset.batter || null;
+  const bowlerId = currentTarget.dataset.bowler || null;
+  const metric   = currentTarget.dataset.metric;
+  const matchId  = currentTarget.dataset.match;
+  const inningId = currentTarget.dataset.inning;
+  const playerName = currentTarget.dataset.playerName || "UnknownPlayer";
+
+  // ❌ Guard: skip non-actionable metrics
+  if (["sr", "M", "E/R"].includes(metric)) return;
+
+  if (action === "play") {
+    const url = `/video_player?` +
+                (batterId ? `batter_id=${encodeURIComponent(batterId)}` 
+                          : `bowler_id=${encodeURIComponent(bowlerId)}`) +
+                `&metric=${encodeURIComponent(metric)}` +
+                `&match_id=${encodeURIComponent(matchId)}` +
+                `&inning_id=${encodeURIComponent(inningId)}`;
+
+    console.log("▶️ Opening:", url);
+    window.open(url, "_blank");
+  }
+
+  if (action === "download") {
+    const payload = {
+      batter_id: batterId,
+      bowler_id: bowlerId,
+      metric: metric,
+      match_id: matchId,
+      inning_id: inningId,
+      player_name: playerName
+    };
+
+    fetch("/download_metric_videos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(res => {
+        if (!res.ok) throw new Error("Download failed");
+        return res.blob();
+      })
+      .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${playerName}_${metric}.zip`;   // ✅ correct filename
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      })
+      .catch(err => console.error("Download error:", err));
+  }
+}
+</script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  const tabs = document.querySelectorAll(".inning-tab");
+  const scorecards = document.querySelectorAll(".inning-scorecard");
+  const fows = document.querySelectorAll(".inning-fow");
+  const summaries = document.querySelectorAll(".inning-summary");
+
+  tabs.forEach(tab => {
+    tab.addEventListener("click", function() {
+      const selectedInning = this.dataset.inning;
+
+      // Remove highlight from all tabs
+      tabs.forEach(t => {
+        t.classList.remove("bg-custom-500", "text-white");
+        t.classList.add("bg-slate-200", "dark:bg-zink-700", "text-slate-700", "dark:text-zink-200");
+      });
+
+      // Highlight the clicked tab
+      this.classList.remove("bg-slate-200", "dark:bg-zink-700", "text-slate-700", "dark:text-zink-200");
+      this.classList.add("bg-custom-500", "text-white");
+
+      // Hide all innings and show selected
+      scorecards.forEach(div => div.classList.add("hidden"));
+      fows.forEach(div => div.classList.add("hidden"));
+      summaries.forEach(div => div.classList.add("hidden"));
+
+      document.getElementById(`inning-${selectedInning}`).classList.remove("hidden");
+      const fowDiv = document.getElementById(`inning-fow-${selectedInning}`);
+      if (fowDiv) fowDiv.classList.remove("hidden");
+      const summaryDiv = document.getElementById(`inning-summary-${selectedInning}`);
+      if (summaryDiv) summaryDiv.classList.remove("hidden");
+    });
+  });
+});
+</script>
+
+
+
+
+
+
+
+
+
+<!-- Report Section -->
+<!-- Report Section -->
+{% if request.values.get('view_type') == 'report' %}
+<div id="report-card-container" class="order-6 card mx-auto w-full sm:w-11/12 md:w-10/12 lg:w-3/5 mt-6">
+  <div class="card-body">
+
+    <!-- 🏏 Report heading + PDF button -->
+    <div class="flex justify-between items-center mb-4">
+      <h5 class="text-lg font-semibold text-slate-700 dark:text-zink-100">
+        Report
+      </h5>
+      <button onclick="window.location.href='/download_report_pdf/{{ selected_match }}'"
+              class="px-3 py-1 bg-red-500 text-white rounded-md hover:bg-red-600">
+          Download PDF
+      </button>
+    </div>
+
+    <!-- ✅ Everything inside this div will be cached + exported -->
+    <div id="report-card">
+
+      {% if match_header %}
+      <!-- ✅ Common Match Header Card (only ONCE, both formats) -->
+      <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mb-6">
+        <div class="card-body text-center space-y-4 text-slate-900 dark:text-white">
+          <h6 class="text-md font-semibold">{{ match_header.TournamentName }}</h6>
+          <p>{{ match_header.DaySessionText }}</p>
+          <p>{{ match_header.MatchName }}</p>
+          <p>{{ match_header.GroundName }}</p>
+
+          {% if match_innings %}
+          <div class="flex items-center justify-center mt-6 gap-8">
+            <!-- Left -->
+            <div class="text-center space-y-3">
+              {% for inn in match_innings if inn.Inn_Inning in [1,3] %}
+              <div>
+                <p class="font-bold">{{ inn.TeamShortName }}</p>
+                <p>
+                  Innings {{ inn.Inn_Inning }}: {{ inn.Inn_TotalRuns }}/{{ inn.Inn_Wickets }} ({{ inn.Inn_Overs }} Ov)
+                </p>
+              </div>
+              {% endfor %}
+            </div>
+            <div><img src="{{ url_for('static', filename='VS.png') }}" class="h-12 mx-auto" alt="VS"></div>
+            <!-- Right -->
+            <div class="text-center space-y-3">
+              {% for inn in match_innings if inn.Inn_Inning in [2,4] %}
+              <div>
+                <p class="font-bold">{{ inn.TeamShortName }}</p>
+                <p>
+                  Innings {{ inn.Inn_Inning }}: {{ inn.Inn_TotalRuns }}/{{ inn.Inn_Wickets }} ({{ inn.Inn_Overs }} Ov)
+                </p>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <p class="text-center mt-6 font-semibold text-white bg-custom-500 rounded-md py-2">
+            {{ match_header.ResultText if match_header.ResultText else "Match Result Not Available" }}
+          </p>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+
+      <!-- ✅ Multiday Flow -->
+      {% if match_format_code in [27, 29] %}
+        {% if multi_day_report %}
+          {% for day, day_payload in multi_day_report.days.items() %}
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-bold text-lg text-slate-800 dark:text-zink-100 mb-4">DAY {{ day }}</h6>
+
+                <!-- Sessions -->
+                <div class="space-y-4">
+                  {% for sess_no in [1, 2, 3] %}
+                    {% set session_innings = day_payload.sessions.get(sess_no, []) %}
+                    {% if session_innings %}
+
+                    {% set box_color = 
+                      'purple-500' if sess_no == 1 else
+                      'green-500' if sess_no == 2 else
+                      'slate-500' %}
+
+                    <div class="p-4 rounded-md shadow bg-{{ box_color }} text-white dark:bg-{{ box_color }}-600">
+                      <p class="font-semibold">Session {{ sess_no }}</p>
+
+                      {% for inn in session_innings %}
+                      <div class="mt-2 border-t border-slate-300 dark:border-zink-700 pt-2">
+                        <p class="font-semibold">Innings {{ inn.innings }}</p>
+                        <p><span class="font-semibold">Batting:</span> {{ inn.batting_team }}</p>
+                        <p>
+                          Runs: {{ inn.runs }} |
+                          Wkts: {{ inn.wkts }} |
+                          Overs: {{ inn.overs_str }} |
+                          R.R: {{ inn.rr }}
+                        </p>
+                        <p>
+                          0s: {{ inn.zeros }} | 1s: {{ inn.ones }} |
+                          2s: {{ inn.twos }} | 3s: {{ inn.threes }} |
+                          4s: {{ inn.fours }} | 6s: {{ inn.sixes }}
+                        </p>
+                      </div>
+                      {% endfor %}
+                    </div>
+                    {% endif %}
+                  {% endfor %}
+                </div>
+
+
+                <!-- Donut chart below sessions -->
+                <div class="mt-6 flex justify-center">
+                  <div class="w-full md:w-1/2 lg:w-1/3 max-w-sm">
+                    {{ multi_day_report.charts[day] | safe }}
+                  </div>
+                </div>
+
+                <!-- ✅ New Detailed Tables (AFTER donut chart) -->
+                <div class="mt-8 space-y-6">
+                  {% for sess_no in [1, 2, 3] %}
+                    {% set session_innings = day_payload.sessions.get(sess_no, []) %}
+                    {% for inn in session_innings %}
+                    <div class="card bg-white dark:bg-zink-800 rounded-md shadow p-4">
+                      <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100">
+                        {{ inn.batting_team }} (Inn: {{ inn.innings }} | Day: {{ day }} | Session: {{ sess_no }})
+                      </h6>
+
+                      <!-- Compact Styled Table -->
+                      <!-- Compact Styled Table -->
+                      <div class="overflow-x-auto">
+                        <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                          <thead class="bg-custom-100 dark:bg-custom-500/10">
+                            <tr>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-left">Runs</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Score</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Run Rate</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Fours</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Sixes</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Dot Balls</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">1s</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">2s</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">3s</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Overs</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Maiden</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Wkts</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Eco Rate</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Wide Balls</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">No Balls</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Runs Saved</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Runs Given</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Catches Taken</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Catches Dropped</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-left">{{ inn.stats_table.runs }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.score }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.run_rate }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.fours }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.sixes }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.dot_balls }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.ones }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.twos }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.threes }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.overs }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.maiden }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.wkts }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.eco_rate }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.wide_balls }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.no_balls }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.runs_saved }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.runs_given }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.catches_taken }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ inn.stats_table.catches_dropped }}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+
+
+                      <!-- ✅ Radar Charts -->
+                      {% if inn.radar_chart or inn.spin_radar_chart or inn.pace_radar_chart %}
+                      <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <!-- Consolidated -->
+                        <div class="text-center">
+                          <h6 class="font-semibold text-slate-700 dark:text-zink-100 mb-2">Consolidated</h6>
+                          {% if inn.radar_chart %}
+                            <img src="{{ inn.radar_chart }}" alt="Consolidated Radar" class="mx-auto rounded-lg shadow-md">
+                          {% else %}
+                            <p class="text-xs text-slate-500 dark:text-zink-400">No data</p>
+                          {% endif %}
+                        </div>
+
+                        <!-- Pace -->
+                        <div class="text-center">
+                          <h6 class="font-semibold text-slate-700 dark:text-zink-100 mb-2">Pace</h6>
+                          {% if inn.pace_radar_chart %}
+                            <img src="{{ inn.pace_radar_chart }}" alt="Pace Radar" class="mx-auto rounded-lg shadow-md">
+                          {% else %}
+                            <p class="text-xs text-slate-500 dark:text-zink-400">No data</p>
+                          {% endif %}
+                        </div>
+
+                        <!-- Spin -->
+                        <div class="text-center">
+                          <h6 class="font-semibold text-slate-700 dark:text-zink-100 mb-2">Spin</h6>
+                          {% if inn.spin_radar_chart %}
+                            <img src="{{ inn.spin_radar_chart }}" alt="Spin Radar" class="mx-auto rounded-lg shadow-md">
+                          {% else %}
+                            <p class="text-xs text-slate-500 dark:text-zink-400">No data</p>
+                          {% endif %}
+                        </div>
+                      </div>
+                      {% endif %}
+
+
+                      <!-- ✅ Batter & Bowler Tables -->
+                      <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Batter Table -->
+                        <!-- Batter Table -->
+                        <div class="overflow-x-auto">
+                          <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100">Batters</h6>
+                          <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                            <thead class="bg-custom-100 dark:bg-custom-500/10">
+                              <tr>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-left">Batter</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Runs</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Balls</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Dots</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">1s</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">2s</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">3s</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">4s</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">6s</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">SR</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {% for batter in inn.batter_table %}
+                              <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-left">{{ batter.name }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ batter.runs }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ batter.balls }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ batter.dots }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ batter.ones }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ batter.twos }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ batter.threes }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ batter.fours }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ batter.sixes }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ batter.sr }}</td>
+                              </tr>
+                              {% endfor %}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <!-- Bowler Table -->
+                        <div class="overflow-x-auto">
+                          <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100">Bowlers</h6>
+                          <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                            <thead class="bg-custom-100 dark:bg-custom-500/10">
+                              <tr>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-left">Bowler</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Overs</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Maidens</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Runs</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Wkts</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">WB</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">NB</th>
+                                <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Econ</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {% for bowler in inn.bowler_table %}
+                              <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-left">{{ bowler.name }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ bowler.overs }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ bowler.maidens }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ bowler.runs }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ bowler.wkts }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ bowler.wb }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ bowler.nb }}</td>
+                                <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ bowler.econ }}</td>
+                              </tr>
+                              {% endfor %}
+                            </tbody>
+                          </table>
+                        </div>
+
+                      </div>
+                      <!-- ✅ End Batter & Bowler Tables -->
+                      <!-- ✅ Pitch Maps + Partnerships Row -->
+                      {% if inn.pitchmaps or inn.partnership_table %}
+                      <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+
+                        <!-- Right-hand Batters -->
+                        <div class="flex flex-col items-center">
+                          {% if inn.pitchmaps.right %}
+                            <img src="{{ inn.pitchmaps.right }}" alt="Right-hand Pitch Map"
+                                style="width:250px; height:400px; border-radius:8px;" />
+                            <!-- ✅ Legend under Right-hand Pitch Pad -->
+                            <div style="width:250px; background-color:#dddddd; border-radius:8px; padding:5px;
+                                        display:flex; justify-content:space-around; align-items:center;
+                                        margin-top:8px; color:black; font-size:10px;">
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/MaroonBall_Resized.png" alt="0" style="width:16px;height:16px;" /><span>0</span>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/BlueBall_Resized.png" alt="1" style="width:16px;height:16px;" /><span>1</span>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/PinkBall_Resized.png" alt="2" style="width:16px;height:16px;" /><span>2</span>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/YellowBall_Resized.png" alt="3" style="width:16px;height:16px;" /><span>3</span>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/OrangeBall_Resized.png" alt="4" style="width:16px;height:16px;" /><span>4</span>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/GreenBall_Resized.png" alt="6" style="width:16px;height:16px;" /><span>6</span>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/RedBall_Resized.png" alt="W" style="width:16px;height:16px;" /><span>W</span>
+                              </div>
+                            </div>
+                          {% else %}
+                            <div class="w-[250px] h-[400px] bg-custom-100 dark:bg-custom-500/10 rounded-md 
+                                        flex items-center justify-center text-xs text-slate-500 dark:text-zink-400">
+                              No RHB data
+                            </div>
+                          {% endif %}
+                        </div>
+
+                        <!-- ✅ Partnerships Table (Unchanged Middle Column) -->
+                        <!-- ✅ Partnerships Table -->
+                        <div class="overflow-x-auto flex flex-col items-center">
+                          {% if inn.partnership_table %}
+                            <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">Partnerships</h6>
+                            <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                              <thead class="bg-custom-100 dark:bg-custom-500/10">
+                                <tr>
+                                  <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-left">Batter 1</th>
+                                  <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-left">Batter 2</th>
+                                  <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Runs + Extras</th>
+                                  <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Balls</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {% for row in inn.partnership_table %}
+                                <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                                  <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-left">{{ row.batter1 }}</td>
+                                  <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-left">{{ row.batter2 }}</td>
+                                  <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row.runs_extras }}</td>
+                                  <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row.balls }}</td>
+                                </tr>
+                                {% endfor %}
+                              </tbody>
+                            </table>
+                          {% else %}
+                            <div class="w-full h-[200px] bg-custom-100 dark:bg-custom-500/10 rounded-md 
+                                        flex items-center justify-center text-xs text-slate-500 dark:text-zink-400">
+                              No Partnership data
+                            </div>
+                          {% endif %}
+                        </div>
+
+
+                        <!-- Left-hand Batters -->
+                        <div class="flex flex-col items-center">
+                          {% if inn.pitchmaps.left %}
+                            <img src="{{ inn.pitchmaps.left }}" alt="Left-hand Pitch Map"
+                                style="width:250px; height:400px; border-radius:8px;" />
+                            <!-- ✅ Legend under Left-hand Pitch Pad -->
+                            <div style="width:250px; background-color:#dddddd; border-radius:8px; padding:5px;
+                                        display:flex; justify-content:space-around; align-items:center;
+                                        margin-top:8px; color:black; font-size:10px;">
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/MaroonBall_Resized.png" alt="0" style="width:16px;height:16px;" /><span>0</span>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/BlueBall_Resized.png" alt="1" style="width:16px;height:16px;" /><span>1</span>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/PinkBall_Resized.png" alt="2" style="width:16px;height:16px;" /><span>2</span>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/YellowBall_Resized.png" alt="3" style="width:16px;height:16px;" /><span>3</span>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/OrangeBall_Resized.png" alt="4" style="width:16px;height:16px;" /><span>4</span>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/GreenBall_Resized.png" alt="6" style="width:16px;height:16px;" /><span>6</span>
+                              </div>
+                              <div style="display:flex;align-items:center;gap:3px;">
+                                <img src="/static/RedBall_Resized.png" alt="W" style="width:16px;height:16px;" /><span>W</span>
+                              </div>
+                            </div>
+                          {% else %}
+                            <div class="w-[250px] h-[400px] bg-custom-100 dark:bg-custom-500/10 rounded-md 
+                                        flex items-center justify-center text-xs text-slate-500 dark:text-zink-400">
+                              No LHB data
+                            </div>
+                          {% endif %}
+                        </div>
+
+                      </div>
+                      {% endif %}
+
+
+                      <!-- ✅ Line & Length Table (placed in new row below images) -->
+                      <!-- ✅ Line & Length Table (placed in new row below images) -->
+                      {% if inn.line_length_table %}
+                      <div class="mt-6 overflow-x-auto">
+                        <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">Line and Length</h6>
+                        <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                          <thead class="bg-custom-100 dark:bg-custom-500/10">
+                            <tr>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-left">Line Length</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Leg. St.</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Mid. St.</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Mid/Leg. St.</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Off St.</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Off/Mid. St.</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">OnSide</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Outside Off St.</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Runs</th>
+                              <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Balls</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for row in inn.line_length_table %}
+                            <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-left">{{ row["Line Length"] }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row["Leg. St."].runs }} ({{ row["Leg. St."].balls }})</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row["Mid. St."].runs }} ({{ row["Mid. St."].balls }})</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row["Mid/Leg. St."].runs }} ({{ row["Mid/Leg. St."].balls }})</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row["Off St."].runs }} ({{ row["Off St."].balls }})</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row["Off/Mid. St."].runs }} ({{ row["Off/Mid. St."].balls }})</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row["OnSide"].runs }} ({{ row["OnSide"].balls }})</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row["Outside Off St."].runs }} ({{ row["Outside Off St."].balls }})</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row["Runs"] }}</td>
+                              <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row["Balls"] }}</td>
+                            </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                      {% endif %}
+
+
+
+
+
+                    </div>
+                    {% endfor %}
+                  {% endfor %}
+                </div>
+                <!-- ✅ End Detailed Tables -->
+
+
+
+              </div>
+            </div>
+            {% endfor %}
+          {% endif %}
+      {% elif match_format_code in [26, 28] %}
+        {% if phase_reports %}
+
+          <!-- 🆕 Phase Tabs Strip -->
+          <div class="mt-6 border-b border-gray-200 dark:border-zink-600">
+            <ul class="flex flex-wrap -mb-px text-sm font-medium text-center" role="tablist">
+              <li class="mr-2">
+                <button id="tab-overall" type="button"
+                  class="inline-block px-4 py-2 text-custom-600 border-b-2 border-custom-500 rounded-t-lg active dark:text-custom-300 dark:border-custom-400"
+                  onclick="switchPhaseTab('Overall')">
+                  Overall
+                </button>
+              </li>
+              <li class="mr-2">
+                <button id="tab-powerplay" type="button"
+                  class="inline-block px-4 py-2 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                  onclick="switchPhaseTab('Powerplay')">
+                  Powerplay
+                </button>
+              </li>
+              <li class="mr-2">
+                <button id="tab-middleovers" type="button"
+                  class="inline-block px-4 py-2 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                  onclick="switchPhaseTab('Middle Overs')">
+                  Middle Overs
+                </button>
+              </li>
+              <li>
+                <button id="tab-slogovers" type="button"
+                  class="inline-block px-4 py-2 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                  onclick="switchPhaseTab('Slog Overs')">
+                  Slog Overs
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          {% for phase, report in phase_reports.items() %}
+            {% set phase_id = phase|lower|replace(' ', '') %}
+
+            <div id="phase-{{ phase_id }}" class="{% if phase != 'Overall' %}hidden{% endif %}">
+
+              <!-- 🏏 Both Innings Comparison Card -->
+              <!-- 🏏 Both Innings Comparison Card -->
+              {% if report.team1 and report.team2 %}
+              <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+                <div class="card-body">
+                  <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">
+                    Both Innings Comparison ({{ phase }})
+                  </h6>
+
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-left">Team</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Runs</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Score</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Run Rate</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Fours</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Sixes</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Dot Balls</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">1s</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">2s</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">3s</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Overs</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Maidens</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Wkts</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Eco Rate</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Wide Balls</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">No Balls</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Extras</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <!-- Team 1 -->
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-left">{{ report.team1.name }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.runs }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.score }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.run_rate }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.fours }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.sixes }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.dot_balls }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.ones }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.twos }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.threes }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.overs }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.maidens }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.wkts }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.eco_rate }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.wide_balls }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.no_balls }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team1.extras }}</td>
+                        </tr>
+
+                        <!-- Team 2 -->
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-left">{{ report.team2.name }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.runs }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.score }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.run_rate }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.fours }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.sixes }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.dot_balls }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.ones }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.twos }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.threes }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.overs }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.maidens }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.wkts }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.eco_rate }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.wide_balls }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.no_balls }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ report.team2.extras }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              {% endif %}
+
+
+            <!-- 📊 Runs Per Over Chart Card -->
+            <!-- 📊 Runs Per Over Chart Card -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">
+                  Runs Per Over Comparison ({{ phase }})
+                </h6>
+
+                <!-- ✅ Scrollable wrapper for mobile -->
+                <div class="overflow-x-auto w-full">
+                  <!-- ✅ Match fixed chart width (same as Python: 800px) -->
+                  <div class="min-w-[800px]">
+                    <div id="runs-per-over-chart" class="flex justify-center">
+                      {{ report.runs_per_over_chart|safe }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+
+            <!-- 📈 Run Rate Chart -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">
+                  Run Rate ({{ phase }})
+                </h6>
+                <div class="overflow-x-auto w-full">
+                  <div class="min-w-[800px]">
+                    <div id="run-rate-chart" class="flex justify-center">
+                      {{ report.run_rate_chart|safe }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+
+
+            <!-- 📊 Comparative Analysis -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">
+                  Comparative Analysis ({{ phase }})
+                </h6>
+
+                <div class="space-y-4">
+                  <!-- Row 1: Donut Chart -->
+                  <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-2">
+                    <div class="card-body">
+                      {{ report.donut_chart|safe }}
+                    </div>
+                  </div>
+
+                  <!-- Row 2: Extra Runs -->
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-2">
+                      <div class="card-body">
+                        {{ report.extra_runs_chart|safe }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Row 3: Area Wise (full width, scrollable for mobile) -->
+                  <div class="card bg-white dark:bg-zink-700 shadow rounded-lg mt-6">
+                    <div class="card-body">
+
+                      <!-- ✅ Scrollable container for mobile -->
+                      <div class="overflow-x-auto w-full">
+                        <!-- ✅ Match Plotly width (same as Python layout width=800) -->
+                        <div class="min-w-[800px]">
+                          <!-- ✅ UNIQUE ID per phase -->
+                          <div id="area-wise-chart-{{ phase|lower|replace(' ', '-') }}" class="flex justify-center">
+                            {{ report.area_wise_chart|safe }}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+
+            <!-- Overall Radar Charts Card -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">
+                  {{ phase }} - Runs by Area & Wagon Wheel
+                </h6>
+
+                <!-- Inner Dark Card for Radar + Wagon -->
+                <div class="bg-gray-800 rounded-xl shadow-inner p-6">
+                  <div class="flex flex-col lg:flex-row justify-center items-center gap-10">
+
+                    <!-- Team 1 -->
+                    <div class="flex flex-col items-center">
+                      <p class="font-bold text-lg text-slate-800 dark:text-white mb-4">
+                        {{ report.team1.name }}
+                      </p>
+                      <div class="flex flex-col md:flex-row gap-10 items-center justify-center">
+                        <!-- Radar -->
+                        <div class="w-[400px] h-[400px] flex items-center justify-center bg-transparent">
+                          <img src="data:image/png;base64,{{ report.team1_radar_chart }}"
+                              class="w-[400px] h-[400px] rounded-full"
+                              alt="Team 1 Radar">
+                        </div>
+                        <!-- Wagon -->
+                        {% if report.team1_wagon %}
+                        <div class="w-[400px] h-[400px] flex items-center justify-center bg-transparent">
+                          <img src="data:image/png;base64,{{ report.team1_wagon }}"
+                              class="w-[400px] h-[400px] rounded-md"
+                              alt="Team 1 Wagon Wheel">
+                        </div>
+                        {% endif %}
+                      </div>
+                    </div>
+
+                    <!-- Team 2 -->
+                    <div class="flex flex-col items-center">
+                      <p class="font-bold text-lg text-slate-800 dark:text-white mb-4">
+                        {{ report.team2.name }}
+                      </p>
+                      <div class="flex flex-col md:flex-row gap-10 items-center justify-center">
+                        <!-- Radar -->
+                        <div class="w-[400px] h-[400px] flex items-center justify-center bg-transparent">
+                          <img src="data:image/png;base64,{{ report.team2_radar_chart }}"
+                              class="w-[400px] h-[400px] rounded-full"
+                              alt="Team 2 Radar">
+                        </div>
+                        <!-- Wagon -->
+                        {% if report.team2_wagon %}
+                        <div class="w-[400px] h-[400px] flex items-center justify-center bg-transparent">
+                          <img src="data:image/png;base64,{{ report.team2_wagon }}"
+                              class="w-[400px] h-[400px] rounded-md"
+                              alt="Team 2 Wagon Wheel">
+                        </div>
+                        {% endif %}
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 🏏 Player Contribution & Batting Summary -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">
+                  Player Contributions & Batting Summary ({{ phase }})
+                </h6>
+
+                <!-- Team 1 Section -->
+                <!-- Team 1 Section -->
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4 mb-6">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team1_name }} – {{ phase }} Run % by Player
+                  </h6>
+                  <div class="mb-6">
+                    {{ report.player_donut_team1|safe }}
+                  </div>
+
+                  <h6 class="font-semibold text-slate-700 dark:text-zink-100 mb-3">
+                    {{ report.team1_name }} Batting Summary
+                  </h6>
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-left">Batter</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Runs</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Balls</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">4s</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">6s</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in report.batting_summary_team1.itertuples() %}
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-left">{{ row.Batter }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row.Runs }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row.Balls }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row.Fours }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row.Sixes }}</td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Team 2 Section -->
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team2_name }} – {{ phase }} Run % by Player
+                  </h6>
+                  <div class="mb-6">
+                    {{ report.player_donut_team2|safe }}
+                  </div>
+
+                  <h6 class="font-semibold text-slate-700 dark:text-zink-100 mb-3">
+                    {{ report.team2_name }} Batting Summary
+                  </h6>
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-left">Batter</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Runs</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">Balls</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">4s</th>
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">6s</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in report.batting_summary_team2.itertuples() %}
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-left">{{ row.Batter }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row.Runs }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row.Balls }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row.Fours }}</td>
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">{{ row.Sixes }}</td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+
+              </div>
+            </div>
+
+            <!-- 🎯 Bowling Phases of Play -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">
+                  Bowling Phases of Play ({{ phase }})
+                </h6>
+
+                <!-- Team 1 Bowling -->
+                <!-- Team 1 Bowling -->
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4 mb-6">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team1_name }} – {{ phase }} Dot Ball % by Bowler
+                  </h6>
+                  <div class="mb-6">
+                    {{ report.bowling_donut_team1|safe }}
+                  </div>
+                  <h6 class="font-semibold text-slate-700 dark:text-zink-100 mb-3">
+                    {{ report.team1_name }} Bowling Summary
+                  </h6>
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          <th class="px-2 py-1.5 text-left">Bowler</th>
+                          <th class="px-2 py-1.5 text-center">Overs</th>
+                          <th class="px-2 py-1.5 text-center">Runs</th>
+                          <th class="px-2 py-1.5 text-center">W</th>
+                          <th class="px-2 py-1.5 text-center">NB</th>
+                          <th class="px-2 py-1.5 text-center">Wd</th>
+                          <th class="px-2 py-1.5 text-center">4s</th>
+                          <th class="px-2 py-1.5 text-center">6s</th>
+                          <th class="px-2 py-1.5 text-center">Dots</th>
+                          <th class="px-2 py-1.5 text-center">Maiden</th>
+                          <th class="px-2 py-1.5 text-center">Econ</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in report.bowling_summary_team1.itertuples() %}
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          <td class="px-2 py-1.5 text-left">{{ row.Bowler }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Overs }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Runs }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.W }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.NB }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Wd }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Fours }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Sixes }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Dots }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Maiden }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Econ }}</td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Team 2 Bowling -->
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team2_name }} – {{ phase }} Dot Ball % by Bowler
+                  </h6>
+                  <div class="mb-6">
+                    {{ report.bowling_donut_team2|safe }}
+                  </div>
+                  <h6 class="font-semibold text-slate-700 dark:text-zink-100 mb-3">
+                    {{ report.team2_name }} Bowling Summary
+                  </h6>
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          <th class="px-2 py-1.5 text-left">Bowler</th>
+                          <th class="px-2 py-1.5 text-center">Overs</th>
+                          <th class="px-2 py-1.5 text-center">Runs</th>
+                          <th class="px-2 py-1.5 text-center">W</th>
+                          <th class="px-2 py-1.5 text-center">NB</th>
+                          <th class="px-2 py-1.5 text-center">Wd</th>
+                          <th class="px-2 py-1.5 text-center">4s</th>
+                          <th class="px-2 py-1.5 text-center">6s</th>
+                          <th class="px-2 py-1.5 text-center">Dots</th>
+                          <th class="px-2 py-1.5 text-center">Maiden</th>
+                          <th class="px-2 py-1.5 text-center">Econ</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in report.bowling_summary_team2.itertuples() %}
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          <td class="px-2 py-1.5 text-left">{{ row.Bowler }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Overs }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Runs }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.W }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.NB }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Wd }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Fours }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Sixes }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Dots }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Maiden }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Econ }}</td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">
+                  Batting: Performance vs Pace & Spin ({{ phase }})
+                </h6>
+
+                <!-- Team 1 -->
+                <!-- Team 1 -->
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4 mb-6">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team1_name }}
+                  </h6>
+                  <div class="mb-6">{{ report.vs_chart_team1|safe }}</div>
+
+                  <h6 class="font-semibold mb-2">{{ report.team1_name }} vs Pace</h6>
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          <th class="px-2 py-1.5 text-left">Batter</th>
+                          <th class="px-2 py-1.5 text-center">Runs</th>
+                          <th class="px-2 py-1.5 text-center">Balls</th>
+                          <th class="px-2 py-1.5 text-center">SR</th>
+                          <th class="px-2 py-1.5 text-center">Dots</th>
+                          <th class="px-2 py-1.5 text-center">4s</th>
+                          <th class="px-2 py-1.5 text-center">6s</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in report.pace_table_team1.itertuples() %}
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          <td class="px-2 py-1.5 text-left">{{ row.Batter }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Runs }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Balls }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.SR }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Dots }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Fours }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Sixes }}</td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <h6 class="font-semibold mt-4 mb-2">{{ report.team1_name }} vs Spin</h6>
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          <th class="px-2 py-1.5 text-left">Batter</th>
+                          <th class="px-2 py-1.5 text-center">Runs</th>
+                          <th class="px-2 py-1.5 text-center">Balls</th>
+                          <th class="px-2 py-1.5 text-center">SR</th>
+                          <th class="px-2 py-1.5 text-center">Dots</th>
+                          <th class="px-2 py-1.5 text-center">4s</th>
+                          <th class="px-2 py-1.5 text-center">6s</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in report.spin_table_team1.itertuples() %}
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          <td class="px-2 py-1.5 text-left">{{ row.Batter }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Runs }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Balls }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.SR }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Dots }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Fours }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Sixes }}</td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Team 2 -->
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4 mb-6">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team2_name }}
+                  </h6>
+                  <div class="mb-6">{{ report.vs_chart_team2|safe }}</div>
+
+                  <h6 class="font-semibold mb-2">{{ report.team2_name }} vs Pace</h6>
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          <th class="px-2 py-1.5 text-left">Batter</th>
+                          <th class="px-2 py-1.5 text-center">Runs</th>
+                          <th class="px-2 py-1.5 text-center">Balls</th>
+                          <th class="px-2 py-1.5 text-center">SR</th>
+                          <th class="px-2 py-1.5 text-center">Dots</th>
+                          <th class="px-2 py-1.5 text-center">4s</th>
+                          <th class="px-2 py-1.5 text-center">6s</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in report.pace_table_team2.itertuples() %}
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          <td class="px-2 py-1.5 text-left">{{ row.Batter }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Runs }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Balls }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.SR }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Dots }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Fours }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Sixes }}</td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <h6 class="font-semibold mt-4 mb-2">{{ report.team2_name }} vs Spin</h6>
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          <th class="px-2 py-1.5 text-left">Batter</th>
+                          <th class="px-2 py-1.5 text-center">Runs</th>
+                          <th class="px-2 py-1.5 text-center">Balls</th>
+                          <th class="px-2 py-1.5 text-center">SR</th>
+                          <th class="px-2 py-1.5 text-center">Dots</th>
+                          <th class="px-2 py-1.5 text-center">4s</th>
+                          <th class="px-2 py-1.5 text-center">6s</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in report.spin_table_team2.itertuples() %}
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          <td class="px-2 py-1.5 text-left">{{ row.Batter }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Runs }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Balls }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.SR }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Dots }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Fours }}</td>
+                          <td class="px-2 py-1.5 text-center">{{ row.Sixes }}</td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- 🎯 Batting Partnerships -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">
+                  Batting: Inning Partnerships ({{ phase }})
+                </h6>
+
+                <!-- Team 1 -->
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4 mb-6">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team1_name }}
+                  </h6>
+                  <div class="mb-6">{{ report.partnership_chart_team1|safe }}</div>
+                </div>
+
+                <!-- Team 2 -->
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4 mb-6">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team2_name }}
+                  </h6>
+                  <div class="mb-6">{{ report.partnership_chart_team2|safe }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 🎯 Bowling Variations -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">
+                  Bowling Variations ({{ phase }})
+                </h6>
+
+                <!-- Team 1 -->
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4 mb-6">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team1_name }}
+                  </h6>
+
+                  {% if report.delivery_chart_team1 %}
+                  <div class="card bg-white dark:bg-zink-600 shadow rounded-lg p-4 mb-6">
+                    <div class="mb-6">{{ report.delivery_chart_team1|safe }}</div>
+                  </div>
+                  {% endif %}
+
+                  {% if report.pitch_chart_team1 %}
+                  <div class="card bg-white dark:bg-zink-600 shadow rounded-lg p-4 mb-6">
+                    <div class="mb-6">{{ report.pitch_chart_team1|safe }}</div>
+                  </div>
+                  {% endif %}
+                </div>
+
+                <!-- Team 2 -->
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4 mb-6">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team2_name }}
+                  </h6>
+
+                  {% if report.delivery_chart_team2 %}
+                  <div class="card bg-white dark:bg-zink-600 shadow rounded-lg p-4 mb-6">
+                    <div class="mb-6">{{ report.delivery_chart_team2|safe }}</div>
+                  </div>
+                  {% endif %}
+
+                  {% if report.pitch_chart_team2 %}
+                  <div class="card bg-white dark:bg-zink-600 shadow rounded-lg p-4 mb-6">
+                    <div class="mb-6">{{ report.pitch_chart_team2|safe }}</div>
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            <!-- 🆕 Bowling: Split of Runs Conceded -->
+            <!-- 🆕 Bowling: Split of Runs Conceded -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">
+                  Bowling: Split of Runs Conceded ({{ phase }})
+                </h6>
+
+                <!-- Team 1 -->
+                {% if not report.runs_conceded_table_team1.empty %}
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4 mb-6">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team1_name }} – {{ phase }} Runs Conceded Breakdown
+                  </h6>
+
+                  <div class="mb-6 overflow-x-auto w-full">
+                    <div class="min-w-[800px]">
+                      <div id="runs-conceded-chart-team1" class="flex justify-center">
+                        {{ report.runs_conceded_chart_team1|safe }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          {% for col in report.runs_conceded_table_team1.columns %}
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 {% if loop.first %}text-left{% else %}text-center{% endif %}">
+                            {{ col }}
+                          </th>
+                          {% endfor %}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in report.runs_conceded_table_team1.to_dict(orient="records") %}
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          {% for col in report.runs_conceded_table_team1.columns %}
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 {% if loop.first %}text-left{% else %}text-center{% endif %}">
+                            {{ row[col] if row[col] is not none else '' }}
+                          </td>
+                          {% endfor %}
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                {% endif %}
+
+                <!-- Team 2 -->
+                {% if not report.runs_conceded_table_team2.empty %}
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4 mb-6">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team2_name }} – {{ phase }} Runs Conceded Breakdown
+                  </h6>
+
+                  <div class="mb-6 overflow-x-auto w-full">
+                    <div class="min-w-[800px]">
+                      <div id="runs-conceded-chart-team2" class="flex justify-center">
+                        {{ report.runs_conceded_chart_team2|safe }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          {% for col in report.runs_conceded_table_team2.columns %}
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 {% if loop.first %}text-left{% else %}text-center{% endif %}">
+                            {{ col }}
+                          </th>
+                          {% endfor %}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in report.runs_conceded_table_team2.to_dict(orient="records") %}
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          {% for col in report.runs_conceded_table_team2.columns %}
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 {% if loop.first %}text-left{% else %}text-center{% endif %}">
+                            {{ row[col] if row[col] is not none else '' }}
+                          </td>
+                          {% endfor %}
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                {% endif %}
+
+              </div>
+            </div>
+
+
+            <!-- 🆕 Bowling: Boundaries Conceded per Ball in Over -->
+            <!-- 🆕 Bowling: Boundaries Conceded per Ball in Over -->
+            <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
+              <div class="card-body">
+                <h6 class="font-bold mb-3 text-slate-800 dark:text-zink-100 text-center">
+                  Bowling: Boundaries Conceded per Ball in Over ({{ phase }})
+                </h6>
+
+                <!-- 🟦 TEAM 1 -->
+                {% if report.boundaries_table_team1 is not none and not report.boundaries_table_team1.empty %}
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4 mb-6">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team1_name }} – {{ phase }} Boundaries Conceded Breakdown
+                  </h6>
+
+                  <!-- ✅ Chart inside same card -->
+                  <div class="overflow-x-auto w-full mb-4">
+                    <div class="min-w-[800px]">
+                      <div id="boundaries-chart-team1" class="flex justify-center">
+                        {{ report.boundaries_chart_team1|safe }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- ✅ Table inside same card -->
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          {% for col in report.boundaries_table_team1.columns %}
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">
+                            {{ col }}
+                          </th>
+                          {% endfor %}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in report.boundaries_table_team1.to_dict(orient="records") %}
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          {% for col in report.boundaries_table_team1.columns %}
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">
+                            {{ row[col] if row[col] is not none else '' }}
+                          </td>
+                          {% endfor %}
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                {% endif %}
+
+                <!-- 🟧 TEAM 2 -->
+                {% if report.boundaries_table_team2 is not none and not report.boundaries_table_team2.empty %}
+                <div class="card bg-white dark:bg-zink-700 shadow rounded-lg p-4 mb-6">
+                  <h6 class="font-semibold text-center text-slate-700 dark:text-zink-100 mb-4">
+                    {{ report.team2_name }} – {{ phase }} Boundaries Conceded Breakdown
+                  </h6>
+
+                  <!-- ✅ Chart inside same card -->
+                  <div class="overflow-x-auto w-full mb-4">
+                    <div class="min-w-[800px]">
+                      <div id="boundaries-chart-team2" class="flex justify-center">
+                        {{ report.boundaries_chart_team2|safe }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- ✅ Table inside same card -->
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10">
+                      <thead class="bg-custom-100 dark:bg-custom-500/10">
+                        <tr>
+                          {% for col in report.boundaries_table_team2.columns %}
+                          <th class="px-2 py-1.5 font-semibold border-b border-custom-200 dark:border-custom-900 text-center">
+                            {{ col }}
+                          </th>
+                          {% endfor %}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in report.boundaries_table_team2.to_dict(orient="records") %}
+                        <tr class="hover:bg-custom-100/50 dark:hover:bg-custom-500/20">
+                          {% for col in report.boundaries_table_team2.columns %}
+                          <td class="px-2 py-1.5 border-y border-custom-200 dark:border-custom-900 text-center">
+                            {{ row[col] if row[col] is not none else '' }}
+                          </td>
+                          {% endfor %}
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+
+          </div> 
+
+          {% endfor %}
+        {% endif %}
+      {% endif %}
+
+
+  </div>
+</div>
+{% endif %}
+
+<style>
+/* ---------- MOBILE SCORECARD POLISH (<=768px) ---------- */
+@media (max-width: 768px) {
+
+  /* Global compact rhythm */
+  .card { margin-bottom: .6rem !important; }
+  .card-body { padding: .6rem .65rem !important; }
+  .card-body p,
+  .card-body h5,
+  .card-body h6 { margin: 0 0 .35rem 0 !important; }
+
+  /* Type scales that actually shrink on small screens */
+  .card-body h5 { font-size: clamp(.85rem, 2.5vw, .95rem) !important; }
+  .card-body h6 { font-size: clamp(.8rem,  2.3vw, .9rem)  !important; }
+  .card-body p,
+  .text-sm { font-size: clamp(.72rem, 2.2vw, .8rem) !important; line-height: 1.15 !important; }
+
+  /* Innings header row */
+  .card-body .flex.items-center.justify-center.mt-6.gap-8 {
+    flex-direction: column !important;
+    gap: .35rem !important;
+  }
+
+  /* Inning pills */
+  .inning-tab { font-size: .72rem !important; padding: .25rem .5rem !important; border-radius: 9999px !important; }
+
+  /* -------- 🏏 BATTER ROW STRUCTURE -------- */
+
+  /* details.batter-details > summary {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
+    gap: .25rem !important;
+  } */
+
+   details.batter-details > summary {
+    position: relative !important;
+  }
+
+  details.batter-details > summary > .flex.gap-8.w-1/2.justify-end.text-sm.font-medium {
+    position: absolute !important;
+    top: 0 !important;
+    right: 0 !important;
+    transform: translateY(-55%) !important;
+    width: auto !important;
+    gap: .4rem !important;
+    background: transparent !important;
+    justify-content: flex-end !important;
+  }
+
+  details.batter-details > summary > .flex.gap-8.w-1/2.justify-end.text-sm.font-medium > div {
+    width: 28px !important;
+    font-size: .68rem !important;
+  }
+
+  details.batter-details > summary > .flex.items-center.gap-3.w-1/2 {
+    padding-right: 6rem !important;
+  }
+
+
+  /* Top row: player name + stats */
+  .batter-summary-top {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    gap: .4rem !important;
+  }
+
+  /* Left: name area */
+  .batter-summary-left {
+    flex: 0 0 40% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    min-width: 0 !important;
+  }
+
+  /* Right: stats (R,B,4s,6s,SR) */
+  .batter-summary-right {
+    flex: 0 0 60% !important;
+    display: grid !important;
+    grid-template-columns: repeat(5, 1fr) !important;
+    column-gap: .3rem !important;
+    text-align: center !important;
+    justify-items: center !important;
+    font-variant-numeric: tabular-nums !important;
+  }
+
+  /* Hide serial number & image */
+  .batter-details img,
+  .batter-details .w-5,
+  .batter-details .serial-no { display: none !important; }
+
+  /* Batter name */
+  .batter-details h3 {
+    font-size: .72rem !important;
+    font-weight: 600 !important;
+    color: inherit !important;
+    margin: 0 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  /* Dismissal text below name */
+  .batter-details .dismissal-text,
+  .batter-details .text-gray-500,
+  .batter-details p.text-sm {
+    display: block !important;
+    font-size: .6rem !important;
+    opacity: 0.85 !important;
+    margin-top: .15rem !important;
+    text-align: left !important;
+    line-height: 1.05 !important;
+    white-space: normal !important;
+  }
+
+  /* Stats cells */
+  .batter-summary-right div,
+  .batter-summary-right button {
+    font-size: .68rem !important;
+    padding: 0 !important;
+    text-align: center !important;
+  }
+
+  /* -------- BOWLER (UNCHANGED STRUCTURE, JUST COMPACT) -------- */
+
+  details.bowler-details > summary {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: nowrap !important;
+    gap: .4rem !important;
+  }
+
+  .bowler-details img { display: none !important; }
+
+  .bowler-details h3 {
+    font-size: .68rem !important;
+    font-weight: 600 !important;
+    line-height: 1.05 !important;
+    margin: 0 !important;
+    text-align: left !important;
+  }
+
+  details.bowler-details > summary > .w-1/2:last-child {
+    flex-shrink: 0 !important;
+    display: grid !important;
+    grid-template-columns: repeat(6, 28px) !important;
+    justify-content: end !important;
+    align-items: center !important;
+    column-gap: .25rem !important;
+    text-align: center !important;
+  }
+
+  .metric-cell {
+    width: 28px !important;
+    font-size: .7rem !important;
+    text-align: center !important;
+  }
+
+  /* -------- TABLES & GENERAL COMPACT FIXES -------- */
+
+  .card-body .overflow-x-auto { overflow-x: auto !important; }
+  .card-body table { font-size: .72rem !important; min-width: 520px; border-collapse: collapse !important; }
+  .card-body table th,
+  .card-body table td { padding: .35rem .45rem !important; white-space: nowrap !important; }
+
+  /* Wagon wheel fix */
+  .card-body img[alt*="Wagon Wheel"],
+  #wagon-wheel-img,
+  [id^="wagon-wheel-img-"] {
+    width: 200px !important;
+    height: 200px !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 0 auto !important;
+  }
+
+  .filter-pill { width: 86px !important; height: 32px !important; font-size: .7rem !important; }
+
+  .last-12-balls .w-8,
+  .last-12-balls .w-10 { width: 28px !important; height: 28px !important; font-size: .7rem !important; }
+
+  /* Long text wrapping */
+  .batter-details h3,
+  .batter-details p,
+  .bowler-details h3,
+  .bowler-details p { white-space: normal !important; }
+}
+</style>
+
+
+<script>
+document.getElementById("toggle-filter-btn").addEventListener("click", function () {
+  const filterSection = document.getElementById("filter-section");
+  const arrow = document.getElementById("filter-arrow");
+  filterSection.classList.toggle("hidden");
+  arrow.classList.toggle("rotate-180");
+});
+
+// Inning switch
+document.querySelectorAll(".inning-tab").forEach(btn => {
+  btn.addEventListener("click", function() {
+    const inn = this.dataset.inning;
+
+    // Hide/show scorecards
+    document.querySelectorAll(".inning-scorecard").forEach(div => div.classList.add("hidden"));
+    document.getElementById("inning-"+inn).classList.remove("hidden");
+
+    // Hide/show inning summaries
+    document.querySelectorAll(".inning-summary").forEach(div => div.classList.add("hidden"));
+    const summaryDiv = document.getElementById("inning-summary-"+inn);
+    if (summaryDiv) summaryDiv.classList.remove("hidden");
+
+    // Hide/show fall of wickets
+    document.querySelectorAll(".inning-fow").forEach(div => div.classList.add("hidden"));
+    const fowDiv = document.getElementById("inning-fow-"+inn);
+    if (fowDiv) fowDiv.classList.remove("hidden");
+
+    // ✅ Hide/show bowler scorecards
+    document.querySelectorAll(".inning-bowlers").forEach(div => div.classList.add("hidden"));
+    const bowlDiv = document.getElementById("inning-bowlers-"+inn);
+    if (bowlDiv) bowlDiv.classList.remove("hidden");
+
+    // ✅ Hide/show partnership charts
+    document.querySelectorAll(".inning-partnerships").forEach(div => div.classList.add("hidden"));
+    const partDiv = document.getElementById("inning-partnerships-"+inn);
+    if (partDiv) partDiv.classList.remove("hidden");
+
+    // Highlight active tab
+    document.querySelectorAll(".inning-tab").forEach(b => b.classList.remove("bg-custom-500","text-white"));
+    this.classList.add("bg-custom-500","text-white");
+  });
+});
+</script>
+
+<!-- <script>
+document.querySelectorAll(".filter-pill").forEach(pill => {
+  pill.addEventListener("click", function() {
+    let runType = this.dataset.run;       // "1","2","3","4","6","all"
+    let batterId = this.dataset.batter;   // batter.PlayMId
+    let imgTag = document.getElementById("wagon-wheel-img-" + batterId);
+
+    fetch(`/wagonwheel?batter_id=${batterId}&runType=${runType}`)
+      .then(res => res.json())
+      .then(data => {
+        imgTag.src = "data:image/png;base64," + data.img;
+      });
+  });
+});
+</script> -->
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  // Batters accordion
+  document.querySelectorAll(".batter-details").forEach(details => {
+    details.addEventListener("toggle", function() {
+      if (this.open) {
+        document.querySelectorAll(".batter-details").forEach(other => {
+          if (other !== this) other.removeAttribute("open");
+        });
+      }
+    });
+  });
+
+  // Bowlers accordion
+  document.querySelectorAll(".bowler-details").forEach(details => {
+    details.addEventListener("toggle", function() {
+      if (this.open) {
+        document.querySelectorAll(".bowler-details").forEach(other => {
+          if (other !== this) other.removeAttribute("open");
+        });
+      }
+    });
+  });
+});
+</script>
+
+<script>
+document.addEventListener("contextmenu", function(e) {
+  let target = e.target.closest(".video-btn, .metric-cell");  // ✅ Support both batters & bowlers
+  if (!target) return;
+
+  e.preventDefault();
+
+  // Remove old popup
+  document.querySelectorAll(".metric-popup").forEach(el => el.remove());
+
+  // Create popup
+  let popup = document.createElement("div");
+  popup.className = "metric-popup absolute bg-white border shadow-md rounded p-2 z-50";
+  popup.style.left = e.pageX + "px";
+  popup.style.top = e.pageY + "px";
+
+  let isBowler = target.dataset.bowler !== undefined;
+
+  popup.innerHTML = `
+    <button class="play-btn bg-custom-500 text-white px-3 py-1 rounded w-full mb-2"
+      ${isBowler ? `data-bowler="${target.dataset.bowler}"` : `data-batter="${target.dataset.batter}"`}
+      data-player-name="${target.dataset.playerName || ''}"
+      data-metric="${target.dataset.metric}"
+      data-match="${target.dataset.match}" 
+      data-inning="${target.dataset.inning}">
+      ▶ Play ${target.dataset.metric}
+    </button>
+    <button class="download-btn bg-slate-700 text-white px-3 py-1 rounded w-full"
+      ${isBowler ? `data-bowler="${target.dataset.bowler}"` : `data-batter="${target.dataset.batter}"`}
+      data-player-name="${target.dataset.playerName || ''}"
+      data-metric="${target.dataset.metric}"
+      data-match="${target.dataset.match}" 
+      data-inning="${target.dataset.inning}">
+      ⬇ Download ${target.dataset.metric}
+    </button>
+  `;
+
+  document.body.appendChild(popup);
+
+  // Remove popup on click outside
+  document.addEventListener("click", () => popup.remove(), { once: true });
+});
+
+// Handle Play button click
+document.addEventListener("click", function(e) {
+  if (e.target.classList.contains("play-btn")) {
+    let bowlerId = e.target.dataset.bowler;
+    let batterId = e.target.dataset.batter;
+    let metric = e.target.dataset.metric;
+    let matchId = e.target.dataset.match;
+    let inningId = e.target.dataset.inning;
+
+    if (bowlerId) {
+      window.open(`/video_player?bowler_id=${bowlerId}&metric=${metric}&match_id=${matchId}&inning_id=${inningId}`, "_blank");
+    } else if (batterId) {
+      window.open(`/video_player?batter_id=${batterId}&metric=${metric}&match_id=${matchId}&inning_id=${inningId}`, "_blank");
+    }
+  }
+
+  // Handle Download button click
+  if (e.target.classList.contains("download-btn")) {
+    let bowlerId = e.target.dataset.bowler;
+    let batterId = e.target.dataset.batter;
+    let metric = e.target.dataset.metric;
+    let matchId = e.target.dataset.match;
+    let inningId = e.target.dataset.inning;
+    let playerName = e.target.dataset.playerName;
+
+    fetch("/download_metric_videos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bowler_id: bowlerId,
+        batter_id: batterId,
+        metric: metric,
+        match_id: matchId,
+        inning_id: inningId,
+        player_name: playerName
+      })
+    })
+    .then(res => res.blob())
+    .then(blob => {
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${playerName}_${metric}.zip`;  // 👈 ZIP download
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    })
+    .catch(err => {
+      console.error(err);
+      alert("❌ Error downloading videos.");
+    });
+  }
+
+});
+</script>
+
+<script>
+function switchPhaseTab(phase) {
+  const phaseId = phase.toLowerCase().replace(/\s+/g, '');
+
+  // hide all reports
+  document.querySelectorAll('[id^="phase-"]').forEach(el => el.classList.add('hidden'));
+
+  // reset all tab buttons
+  document.querySelectorAll('[id^="tab-"]').forEach(tab => {
+    tab.classList.remove(
+      'text-custom-600','border-custom-500','active',
+      'dark:text-custom-300','dark:border-custom-400'
+    );
+    tab.classList.add('text-slate-500','border-transparent','dark:text-zink-300');
+  });
+
+  // show selected phase
+  const phaseDiv = document.getElementById(`phase-${phaseId}`);
+  if (phaseDiv) {
+    phaseDiv.classList.remove('hidden');
+
+    // 🆕 Force Plotly + responsive charts/images to resize properly
+    setTimeout(() => {
+      if (window.Plotly) {
+        phaseDiv.querySelectorAll('.js-plotly-plot').forEach(plot => {
+          Plotly.Plots.resize(plot);
+        });
+      }
+      window.dispatchEvent(new Event('resize')); // helps images/radar/wagon adjust
+    }, 200);
+  }
+
+  // highlight active tab
+  const activeTab = document.getElementById(`tab-${phaseId}`);
+  if (activeTab) {
+    activeTab.classList.add(
+      'text-custom-600','border-custom-500','active',
+      'dark:text-custom-300','dark:border-custom-400'
+    );
+    activeTab.classList.remove('text-slate-500','border-transparent','dark:text-zink-300');
+  }
+}
+</script>
+
+<script>
+    // Preload all wagon wheel images for JS
+    const scorecardData = {};
+    {% for batter in batters %}
+    scorecardData["{{ batter.PlayMId }}"] = {
+        wagon_wheel: {{ batter.wagon_wheel | tojson }}
+    };
+    {% endfor %}
+</script>
+
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll(".filter-pill").forEach(pill => {
+        pill.addEventListener("click", function () {
+            const runType = this.getAttribute("data-run");
+            const batterId = this.getAttribute("data-batter");
+            const img = document.getElementById("wagon-wheel-img-" + batterId);
+
+            try {
+                const ww = scorecardData[batterId].wagon_wheel;
+                if (ww && ww[runType]) {
+                    img.src = "data:image/png;base64," + ww[runType];
+                } else if (ww && ww.all) {
+                    img.src = "data:image/png;base64," + ww.all;
+                }
+            } catch (e) {
+                console.error("⚠️ Wagon wheel switch failed:", e);
+            }
+
+            // highlight active pill
+            this.parentNode.querySelectorAll(".filter-pill")
+                .forEach(el => el.classList.remove("ring-2", "ring-black"));
+            this.classList.add("ring-2", "ring-black");
+        });
+    });
+});
+</script>
+
+
+
+
+
+
+
+
+
+
+
+{% endblock content %}
+
+{% block extra_content %}
+<div id="addEmailModal" modal-center class="fixed flex flex-col hidden transition-all duration-300 ease-in-out left-2/4 z-drawer -translate-x-2/4 -translate-y-2/4 show ">
+    <div class="w-screen lg:w-[55rem] bg-white shadow rounded-md dark:bg-zink-600">
+        <div class="flex items-center justify-between p-5 border-b dark:border-zink-500">
+            <h5 class="text-16">New Message</h5>
+            <button data-modal-close="addEmailModal" class="transition-all duration-200 ease-linear text-slate-500 hover:text-red-500"><i data-lucide="x" class="size-5"></i></button>
+        </div>
+        <div class="max-h-[calc(theme('height.screen')_-_180px)] p-5 overflow-y-auto">
+            <form action="#!">
+                <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+                    <div class="xl:col-span-12">
+                        <div class="flex items-center gap-3 mb-2">
+                            <label for="emailTo" class="inline-block text-base font-medium grow">To</label>
+                            <div>
+                                <a href="#!" class="mr-1 inlin-block">Cc</a>
+                                <a href="#!">Bcc</a>
+                            </div>
+                        </div>
+                        <input class="form-input border-slate-200 dark:border-zink-500 focus:outline-none focus:border-custom-500 disabled:bg-slate-100 dark:disabled:bg-zink-600 disabled:border-slate-300 dark:disabled:border-zink-500 dark:disabled:text-zink-200 disabled:text-slate-500 dark:text-zink-100 dark:bg-zink-700 dark:focus:border-custom-800 placeholder:text-slate-400 dark:placeholder:text-zink-200" id="emailTo" data-choices data-choices-limit="3" data-choices-removeItem type="text" value="tailwick@themesdesign.com">
+                    </div>
+                    <div class="xl:col-span-12">
+                        <div>
+                            <label for="subjectInput" class="inline-block mb-2 text-base font-medium">Subject</label>
+                            <input class="form-input border-slate-200 dark:border-zink-500 focus:outline-none focus:border-custom-500 disabled:bg-slate-100 dark:disabled:bg-zink-600 disabled:border-slate-300 dark:disabled:border-zink-500 dark:disabled:text-zink-200 disabled:text-slate-500 dark:text-zink-100 dark:bg-zink-700 dark:focus:border-custom-800 placeholder:text-slate-400 dark:placeholder:text-zink-200" id="subjectInput" value="Subject">
+                        </div>
+                    </div>
+                    <div class="xl:col-span-12">
+                        <div>
+                            <label for="textArea" class="inline-block mb-2 text-base font-medium">Example Textarea</label>
+                            <textarea class="form-input border-slate-200 dark:border-zink-500 focus:outline-none focus:border-custom-500 disabled:bg-slate-100 dark:disabled:bg-zink-600 disabled:border-slate-300 dark:disabled:border-zink-500 dark:disabled:text-zink-200 disabled:text-slate-500 dark:text-zink-100 dark:bg-zink-700 dark:focus:border-custom-800 placeholder:text-slate-400 dark:placeholder:text-zink-200" id="textArea" rows="3"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-2 mt-4">
+                    <button type="reset" data-modal-close="addEmailModal" class="text-red-500 bg-white btn hover:text-red-500 hover:bg-red-100 focus:text-red-500 focus:bg-red-100 active:text-red-500 active:bg-red-100 dark:bg-zink-600 dark:hover:bg-red-500/10 dark:focus:bg-red-500/10 dark:active:bg-red-500/10">Cancel</button>
+                    <button type="submit" class="text-white btn bg-custom-500 border-custom-500 hover:text-white hover:bg-custom-600 hover:border-custom-600 focus:text-white focus:bg-custom-600 focus:border-custom-600 focus:ring focus:ring-custom-100 active:text-white active:bg-custom-600 active:border-custom-600 active:ring active:ring-custom-100 dark:ring-custom-400/20">Send</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div><!--end add user-->
+
+<div id="deleteModal" modal-center class="fixed flex flex-col hidden transition-all duration-300 ease-in-out left-2/4 z-drawer -translate-x-2/4 -translate-y-2/4 show">
+    <div class="w-screen md:w-[25rem] bg-white shadow rounded-md dark:bg-zink-600">
+        <div class="max-h-[calc(theme('height.screen')_-_180px)] overflow-y-auto px-6 py-8">
+            <div class="float-right">
+                <button data-modal-close="deleteModal" class="transition-all duration-200 ease-linear text-slate-500 hover:text-red-500"><i data-lucide="x" class="size-5"></i></button>
+            </div>
+            <img src="{{url_for('static' ,filename='images/delete.png')}}" alt="" class="block h-12 mx-auto">
+            <div class="mt-5 text-center">
+                <h5 class="mb-1">Are you sure?</h5>
+                <p class="text-slate-500 dark:text-zink-200">Are you certain you want to delete this record?</p>
+                <div class="flex justify-center gap-2 mt-6">
+                    <button type="reset" data-modal-close="deleteModal" class="bg-white text-slate-500 btn hover:text-slate-500 hover:bg-slate-100 focus:text-slate-500 focus:bg-slate-100 active:text-slate-500 active:bg-slate-100 dark:bg-zink-600 dark:hover:bg-slate-500/10 dark:focus:bg-slate-500/10 dark:active:bg-slate-500/10">Cancel</button>
+                    <button type="submit" class="text-white bg-red-500 border-red-500 btn hover:text-white hover:bg-red-600 hover:border-red-600 focus:text-white focus:bg-red-600 focus:border-red-600 focus:ring focus:ring-red-100 active:text-white active:bg-red-600 active:border-red-600 active:ring active:ring-red-100 dark:ring-custom-400/20">Yes, Delete It!</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock extra_content %}
+
+{% block extra_js %}
+<script src="{{url_for('static' ,filename='libs/@ckeditor/ckeditor5-build-classic/build/ckeditor.js')}}"></script>
+
+<script src="{{url_for('static' ,filename='js/pages/apps-email.init.js')}}"></script>
+{% endblock extra_js %}

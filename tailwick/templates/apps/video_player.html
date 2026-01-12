@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Player</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}">
+</head>
+<body class="bg-black">
+    <div class="relative w-screen h-screen">
+        <!-- Video Player -->
+        <video controls autoplay muted playsinline class="w-full h-full object-contain">
+            <source src="{{ video_url }}" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+
+        <!-- Controls Overlay -->
+        <div class="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex gap-4">
+            <button onclick="history.back()" class="px-5 py-2 bg-gray-800/70 text-white rounded-md hover:bg-gray-700/90 focus:outline-none focus:ring-2 focus:ring-gray-500">Back</button>
+            <a href="{{ video_url }}" download="{{ video_path }}" class="px-5 py-2 bg-blue-600/80 text-white rounded-md hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-400">Download</a>
+        </div>
+    </div>
+</body>
+</html>

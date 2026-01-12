@@ -1,0 +1,1310 @@
+import pyodbc
+import mysql.connector
+import pandas as pd
+
+#97.74.87.222 https://crickanalyzer.com/
+#  $db['default'] = array(
+#	'dsn'	=> '',
+#	'hostname' => 'localhost',
+ #   'username' => 'cricketanalyzer_dbLite',
+#	'password' => 'dbLiteuser',
+#	'database' => 'cricketanalyzer_dbLite',
+#	'dbdriver' => 'mysqli',
+#	'dbprefix' => '',
+#	'pconnect' => FALSE,
+#	'db_debug' => (ENVIRONMENT !== 'production'),
+#	'cache_on' => FALSE,
+#	'cachedir' => '',
+#	'char_set' => 'utf8',
+#	'dbcollat' => 'utf8_general_ci',
+#	'swap_pre' => '',
+#	'encrypt' => FALSE,
+#	'compress' => FALSE,
+#	'stricton' => FALSE,
+#	'failover' => array(),
+#	'save_queries' => TRUE
+#);
+
+#============================ MySql Cloud DB Functions =============================
+
+def get_all_teams():
+    try:
+        conn = mysql.connector.connect(
+            host='97.74.87.222',        # e.g. '127.0.0.1' or 'yourdomain.com'
+            user='cricketanalyzer_dbLite',
+            password='dbLiteuser',
+            database='cricketanalyzer_dbLite',
+            port=3306                    # default MySQL port; change if needed
+        )
+
+        query = """
+            SELECT DISTINCT scrM_tmMIdBattingName
+            FROM tblscoremaster
+            WHERE scrM_tmMIdBattingName IS NOT NULL
+        """
+        df = pd.read_sql(query, conn)
+        conn.close()
+
+        teams = sorted(df['scrM_tmMIdBattingName'].dropna().unique())
+        return teams
+
+    except Exception as e:
+        print("❌ Failed to fetch teams:", e)
+        return []
+    
+  
+  
+def get_all_tournaments():
+    conn = mysql.connector.connect(
+        host='97.74.87.222',        # e.g. '127.0.0.1' or 'yourdomain.com'
+        user='cricketanalyzer_dbLite',
+        password='dbLiteuser',
+        database='cricketanalyzer_dbLite',
+        port=3306                    # default MySQL port; change if needed
+    )
+    try:
+        
+        query = """
+            SELECT 
+                t.trnM_Id, 
+                t.trnM_TournamentName, 
+                z.z_Name AS match_format
+            FROM tbltournaments t
+            LEFT JOIN tblz z ON t.trnM_MatchFormat_z = z.z_Id
+            WHERE t.trnM_TournamentName IS NOT NULL
+            ORDER BY t.trnM_TournamentName
+        """
+        df = pd.read_sql(query, conn)
+        conn.close()
+
+        options = []
+        for _, row in df.iterrows():
+            format_name = row['match_format'] or "Unknown"
+            label = f"{row['trnM_TournamentName']} ({format_name})"
+            options.append({
+                "label": label,
+                "value": row['trnM_Id'],
+                "format": format_name.lower()  # e.g., "t20", "multiday"
+            })
+
+        print(f"✅ Fetched {len(options)} tournaments")
+        return options
+
+    except Exception as e:
+        print("❌ Failed to fetch tournaments:", e)
+        return []
+
+
+def get_data_from_db(team1, team2):
+    conn = mysql.connector.connect(
+        host='97.74.87.222',        # e.g. '127.0.0.1' or 'yourdomain.com'
+        user='cricketanalyzer_dbLite',
+        password='dbLiteuser',
+        database='cricketanalyzer_dbLite',
+        port=3306                    # default MySQL port; change if needed
+    )
+    try:
+            
+
+            query = """
+                SELECT *
+                FROM tblScoreMaster
+                WHERE scrM_tmMIdBattingName IN (?, ?)
+                AND scrM_tmMIdBowlingName IN (?, ?)
+                AND scrM_IsValidBall = 1
+            """
+
+            df = pd.read_sql(query, conn, params=[team1, team2, team1, team2])
+            conn.close()
+
+            print(f"✅ Loaded {len(df)} rows from DB.")
+            return df
+    except Exception as e:
+            print("❌ DB error:", e)
+            return pd.DataFrame()
+
+    
+def get_match_format_by_tournament(tournament_id):
+    conn = mysql.connector.connect(
+        host='97.74.87.222',        # e.g. '127.0.0.1' or 'yourdomain.com'
+        user='cricketanalyzer_dbLite',
+        password='dbLiteuser',
+        database='cricketanalyzer_dbLite',
+        port=3306                    # default MySQL port; change if needed
+    )
+    try:
+        
+        result = pd.read_sql("""
+            SELECT z.z_Name AS format
+            FROM tbltournaments t
+            JOIN tblz z ON t.trnM_MatchFormat_z = z.z_Id
+            WHERE t.trnM_Id = %s
+        """, conn, params=[tournament_id])
+        conn.close()
+        return result.iloc[0]['format'] if not result.empty else None
+    except Exception as e:
+        print("⚠️ Match format fetch error:", e)
+        return None
+
+
+# Get teams based on selected tournament
+def get_teams_by_tournament(tournament_name):
+    conn = mysql.connector.connect(
+        host='97.74.87.222',        # e.g. '127.0.0.1' or 'yourdomain.com'
+        user='cricketanalyzer_dbLite',
+        password='dbLiteuser',
+        database='cricketanalyzer_dbLite',
+        port=3306                    # default MySQL port; change if needed
+    )
+
+    try:
+        
+        query = """
+            SELECT DISTINCT scrM_tmMIdBattingName 
+            FROM tblscoremaster 
+            WHERE scrM_TrnMId = %s AND scrM_tmMIdBattingName IS NOT NULL
+        """
+        df = pd.read_sql(query, conn, params=[tournament_name])
+        conn.close()
+        print(f"✅ Teams {len(df)} ")
+        return sorted(df['scrM_tmMIdBattingName'].dropna().unique())
+    except Exception as e:
+        print("❌ Teams by tournament error:", e)
+        return []
+
+# Get matches based on selected team (batting or bowling)
+def get_matches_by_team(team):
+    conn = mysql.connector.connect(
+        host='97.74.87.222',        # e.g. '127.0.0.1' or 'yourdomain.com'
+        user='cricketanalyzer_dbLite',
+        password='dbLiteuser',
+        database='cricketanalyzer_dbLite',
+        port=3306                    # default MySQL port; change if needed
+    )
+    try:
+       
+        query = """
+            SELECT DISTINCT scrM_MatchName 
+            FROM tblscoremaster 
+            WHERE (scrM_tmMIdBattingName = %s OR scrM_tmMIdBowlingName = %s) AND scrM_MatchName IS NOT NULL
+        """
+        df = pd.read_sql(query, conn, params=[team, team])
+        conn.close()
+        print(f"✅ Matches by TEeam {len(df)} ")
+        return sorted(df['scrM_MatchName'].dropna().unique())
+    except Exception as e:
+        print("❌ Matches by team error:", e)
+        return []
+ 
+def get_days_innings_sessions_by_matches(matches):
+    conn = mysql.connector.connect(
+        host='97.74.87.222',        # e.g. '127.0.0.1' or 'yourdomain.com'
+        user='cricketanalyzer_dbLite',
+        password='dbLiteuser',
+        database='cricketanalyzer_dbLite',
+        port=3306                    # default MySQL port; change if needed
+    )
+    try:
+        if not matches:
+            return [], [], []
+
+        placeholders = ",".join("%s" for _ in matches)
+        query = f"""
+            SELECT DISTINCT scrM_DayNo, scrM_InningNo, scrM_SessionNo
+            FROM tblscoremaster
+            WHERE scrM_MatchName IN ({placeholders})
+        """
+        
+        df = pd.read_sql(query, conn, params=matches)
+        conn.close()
+
+        days = sorted(df['scrM_DayNo'].dropna().unique(), key=lambda x: int(x))
+        innings = sorted(df['scrM_InningNo'].dropna().unique(), key=lambda x: int(x))
+        sessions = sorted(df['scrM_SessionNo'].dropna().unique(), key=lambda x: int(x))
+
+
+        return days, innings, sessions
+
+    except Exception as e:
+        print("❌ Error getting days/innings/sessions:", e)
+        return [], [], []
+
+
+
+
+def get_players_by_match(matches, day=None, inning=None, session=None):
+    if not matches:
+        return [], []
+
+    conn = mysql.connector.connect(
+        host='97.74.87.222',        # e.g. '127.0.0.1' or 'yourdomain.com'
+        user='cricketanalyzer_dbLite',
+        password='dbLiteuser',
+        database='cricketanalyzer_dbLite',
+        port=3306                    # default MySQL port; change if needed
+    )
+   
+    try:
+        
+        placeholders = ','.join(['%s'] * len(matches))
+        query = f"""
+            SELECT DISTINCT scrM_PlayMIdStrikerName AS Batter,
+                            scrM_PlayMIdBowlerName AS Bowler
+            FROM tblscoremaster
+            WHERE scrM_MatchName IN ({placeholders})
+              AND scrM_PlayMIdStrikerName IS NOT NULL
+              AND scrM_PlayMIdBowlerName IS NOT NULL
+        """
+        params = list(matches)
+
+        if day:
+            query += " AND scrM_DayNo = %s"
+            params.append(int(day))
+        if inning:
+            query += " AND scrM_InningNo = %s"
+            params.append(int(inning))
+        if session:
+            query += " AND scrM_SessionNo = %s"
+            params.append(int(session))
+
+        df = pd.read_sql(query, conn, params=params)
+        conn.close()
+        print(f"✅ Players {len(df)} ")
+        batters = sorted(df["Batter"].dropna().unique().tolist())
+        bowlers = sorted(df["Bowler"].dropna().unique().tolist())
+        return batters, bowlers
+
+    except Exception as e:
+        print("❌ get_players_by_match Error:", e)
+        return [], []
+
+
+
+def get_filtered_score_data(
+    conn, match_names, batters=None, bowlers=None, inning=None,
+    session=None, day=None, phase=None, from_over=None, to_over=None, type=None, ball_phase=None
+):
+    import pandas as pd
+
+    # 🔄 Convert match names to IDs
+    match_df = pd.read_sql(
+        "SELECT mchM_Id, mchM_MatchName FROM tblmatchmaster WHERE mchM_MatchName IN ({})".format(
+            ','.join(['%s'] * len(match_names))
+        ),
+        conn, params=match_names
+    )
+    match_id_map = dict(zip(match_df['mchM_MatchName'], match_df['mchM_Id']))
+    match_ids = list(match_id_map.values())
+
+    # 🔍 Base query
+    query = """
+    SELECT * FROM tblscoremaster
+    WHERE scrM_MchMId IN ({match_ids})
+    AND scrM_IsValidBall = 1
+    """.format(match_ids=','.join(['%s'] * len(match_ids)))
+
+    params = match_ids
+
+    # ⛳ Filters
+    if batters:
+        query += " AND scrM_PlayMIdStrikerName IN ({})".format(','.join(['%s'] * len(batters)))
+        params += batters
+
+    if bowlers:
+        query += " AND scrM_PlayMIdBowlerName IN ({})".format(','.join(['%s'] * len(bowlers)))
+        params += bowlers
+
+    if inning:
+        query += " AND scrM_InningNo = %s"
+        params.append(inning)
+
+    if session:
+        query += " AND scrM_SessionNo = %s"
+        params.append(session)
+
+    if from_over and to_over:
+        query += " AND scrM_OverNo BETWEEN %s AND %s"
+        params.extend([int(from_over), int(to_over)])
+
+    df = pd.read_sql(query, conn, params=params)
+    print(f"✅ Data rows {len(df)} ")
+    df['MatchName'] = df['scrM_MchMId'].map({v: k for k, v in match_id_map.items()})
+    return df
+
+
+def get_ball_by_ball_details(match_names):
+    if not match_names:
+        return pd.DataFrame()
+
+    conn = None
+    try:
+        conn = mysql.connector.connect(
+            host='97.74.87.222',
+            user='cricketanalyzer_dbLite',
+            password='dbLiteuser',
+            database='cricketanalyzer_dbLite',
+            port=3306
+        )
+
+        match_placeholders = ','.join(['%s'] * len(match_names))
+        
+        query = f"""
+            SELECT
+                s.scrM_MatchName,
+                s.scrM_InningNo,
+                s.scrM_OverNo,
+                s.scrM_DelNo,
+                s.scrM_PlayMIdStrikerName,
+                s.scrM_PlayMIdBowlerName,
+                s.scrM_BatsmanRuns,
+                s.scrM_DecisionFinal_zName,
+                s.scrM_ShotType_zName,
+                s.scrM_DeliveryType_zName,
+                s.scrM_PitchX,
+                s.scrM_PitchY,
+                s.scrM_PitchXPos AS scrM_Line,
+                s.scrM_PitchYPos AS scrM_Length,
+
+                s.scrM_IsNoBall,
+                s.scrM_IsWideBall,
+                s.scrM_LegByeRuns,
+                s.scrM_IsBoundry,
+                s.scrM_IsSixer,
+                s.scrM_IsWicket,
+                s.scrM_playMIdCaughtName,
+                s.scrM_playMIdRunOutName,
+                s.scrM_playMIdStumpingName,
+                s.scrM_Video1URL,
+                s.scrM_Video2URL,
+                s.scrM_Video3URL,
+                s.scrM_Video4URL,
+                s.scrM_Video5URL,
+                s.scrM_Video6URL,
+                s.scrM_IsBeaten,
+                s.scrM_IsUncomfort,
+                s.scrM_StrikerBatterSkill,
+                s.scrM_BowlerSkill
+
+
+            FROM tblscoremaster s
+
+            WHERE s.scrM_MatchName IN ({match_placeholders})
+            ORDER BY s.scrM_InningNo, s.scrM_OverNo, s.scrM_DelNo
+        """
+        
+        df = pd.read_sql(query, conn, params=match_names)
+        return df
+
+    except Exception as e:
+        print(f"❌ Error in get_ball_by_ball_details: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn and conn.is_connected():
+            conn.close()
+
+
+#========================== MSSQL Functions =========================
+def get_all_teamsMSSQL():
+    connection_string = """
+        DRIVER={ODBC Driver 17 for SQL Server};
+        SERVER=DESKTOP-CE11INB\SQLEXPRESS;
+        DATABASE=dbCrick;
+        Trusted_Connection=yes;
+    """
+    try:
+        conn = pyodbc.connect(connection_string)
+        query = """
+            SELECT DISTINCT scrM_tmMIdBattingName
+            FROM tblScoreMaster
+            WHERE scrM_tmMIdBattingName IS NOT NULL
+        """
+        df = pd.read_sql(query, conn)
+        conn.close()
+
+        teams = sorted(df['scrM_tmMIdBattingName'].dropna().unique())
+        return teams
+    except Exception as e:
+        print("❌ Failed to fetch teams:", e)
+        return []
+    
+# === GET DATA FOR TWO TEAMS ===
+def get_data_from_dbMSSQL(team1, team2):
+    connection_string = """
+        DRIVER={ODBC Driver 17 for SQL Server};
+        SERVER=DESKTOP-CE11INB\SQLEXPRESS;
+        DATABASE=dbCrick;
+        Trusted_Connection=yes;
+    """
+    try:
+        conn = pyodbc.connect(connection_string)
+        print("✅ DB connected!")
+
+        query = """
+            SELECT *
+            FROM tblScoreMaster
+            WHERE scrM_tmMIdBattingName IN (?, ?)
+              AND scrM_tmMIdBowlingName IN (?, ?)
+              AND scrM_IsValidBall = 1
+        """
+
+        df = pd.read_sql(query, conn, params=[team1, team2, team1, team2])
+        conn.close()
+
+        print(f"✅ Loaded {len(df)} rows from DB.")
+        return df
+    except Exception as e:
+        print("❌ DB error:", e)
+        return pd.DataFrame()
+    
+def get_all_tournamentsMSSQL():
+    connection_string = """
+        DRIVER={ODBC Driver 17 for SQL Server};
+        SERVER=DESKTOP-CE11INB\SQLEXPRESS;
+        DATABASE=dbCrick;
+        Trusted_Connection=yes;
+    """
+    try:
+        conn = pyodbc.connect(connection_string)
+        query = """
+            SELECT 
+                t.trnM_Id, 
+                t.trnM_TournamentName, 
+                z.z_Name AS match_format
+            FROM tblTournaments t
+            LEFT JOIN tblZ z ON t.trnM_MatchFormat_z = z.z_Id
+            WHERE t.trnM_TournamentName IS NOT NULL
+            ORDER BY t.trnM_TournamentName
+        """
+        df = pd.read_sql(query, conn)
+        conn.close()
+
+        options = []
+        for _, row in df.iterrows():
+            format_name = row['match_format'] or "Unknown"
+            label = f"{row['trnM_TournamentName']} ({format_name})"
+            options.append({
+                "label": label,
+                "value": row['trnM_Id'],
+                "format": format_name.lower()  # e.g., "t20", "multiday"
+            })
+
+        print(f"✅ Fetched {len(options)} tournaments")
+        return options
+
+    except Exception as e:
+        print("❌ Failed to fetch tournaments:", e)
+        return []
+    
+def get_match_format_by_tournamentMSSQL(tournament_id):
+    connection_string = """
+        DRIVER={ODBC Driver 17 for SQL Server};
+        SERVER=DESKTOP-CE11INB\SQLEXPRESS;
+        DATABASE=dbCrick;
+        Trusted_Connection=yes;
+    """
+    try:
+        conn = pyodbc.connect(connection_string)
+        result = pd.read_sql("""
+            SELECT z.z_Name AS format
+            FROM tblTournaments t
+            JOIN tblZ z ON t.trnM_MatchFormat_z = z.z_Id
+            WHERE t.trnM_Id = ?
+        """, conn, params=[tournament_id])
+        conn.close()
+        return result.iloc[0]['format'] if not result.empty else None
+    except Exception as e:
+        print("⚠️ Match format fetch error:", e)
+        return None
+
+# Get teams based on selected tournament
+def get_teams_by_tournamentMSSQL(tournament_name):
+    connection_string = """
+        DRIVER={ODBC Driver 17 for SQL Server};
+        SERVER=DESKTOP-CE11INB\SQLEXPRESS;
+        DATABASE=dbCrick;
+        Trusted_Connection=yes;
+    """
+    try:
+        conn = pyodbc.connect(connection_string)
+        query = """
+            SELECT DISTINCT scrM_tmMIdBattingName 
+            FROM tblScoreMaster 
+            WHERE scrM_TrnMId = ? AND scrM_tmMIdBattingName IS NOT NULL
+        """
+        df = pd.read_sql(query, conn, params=[tournament_name])
+        conn.close()
+        return sorted(df['scrM_tmMIdBattingName'].dropna().unique())
+    except Exception as e:
+        print("❌ Teams by tournament error:", e)
+        return []
+
+
+# Get matches based on selected team (batting or bowling)
+def get_matches_by_teamMSSQL(team):
+    connection_string = """
+        DRIVER={ODBC Driver 17 for SQL Server};
+        SERVER=DESKTOP-CE11INB\SQLEXPRESS;
+        DATABASE=dbCrick;
+        Trusted_Connection=yes;
+    """
+    try:
+        conn = pyodbc.connect(connection_string)
+        query = """
+            SELECT DISTINCT scrM_MatchName 
+            FROM tblScoreMaster 
+            WHERE (scrM_tmMIdBattingName = ? OR scrM_tmMIdBowlingName = ?) AND scrM_MatchName IS NOT NULL
+        """
+        df = pd.read_sql(query, conn, params=[team, team])
+        conn.close()
+        return sorted(df['scrM_MatchName'].dropna().unique())
+    except Exception as e:
+        print("❌ Matches by team error:", e)
+        return []
+    
+def get_days_innings_sessions_by_matchesMSSQL(matches):
+    connection_string = """
+        DRIVER={ODBC Driver 17 for SQL Server};
+        SERVER=DESKTOP-CE11INB\SQLEXPRESS;
+        DATABASE=dbCrick;
+        Trusted_Connection=yes;
+    """
+    try:
+        if not matches:
+            return [], [], []
+
+        placeholders = ",".join("?" for _ in matches)
+        query = f"""
+            SELECT DISTINCT scrM_DayNo, scrM_InningNo, scrM_SessionNo
+            FROM tblScoreMaster
+            WHERE scrM_MatchName IN ({placeholders})
+        """
+        conn = pyodbc.connect(connection_string)
+        df = pd.read_sql(query, conn, params=matches)
+        conn.close()
+
+        days = sorted(df['scrM_DayNo'].dropna().unique(), key=lambda x: int(x))
+        innings = sorted(df['scrM_InningNo'].dropna().unique(), key=lambda x: int(x))
+        sessions = sorted(df['scrM_SessionNo'].dropna().unique(), key=lambda x: int(x))
+        return days, innings, sessions
+
+    except Exception as e:
+        print("❌ Error getting days/innings/sessions:", e)
+        return [], [], []
+
+def get_players_by_matchMSSQL(matches, day=None, inning=None, session=None):
+    if not matches:
+        return [], []
+
+    connection_string = """
+        DRIVER={ODBC Driver 17 for SQL Server};
+        SERVER=DESKTOP-CE11INB\SQLEXPRESS;
+        DATABASE=dbCrick;
+        Trusted_Connection=yes;
+    """
+    try:
+        conn = pyodbc.connect(connection_string)
+        placeholders = ','.join(['?'] * len(matches))
+        query = f"""
+            SELECT DISTINCT scrM_PlayMIdStrikerName AS Batter,
+                            scrM_PlayMIdBowlerName AS Bowler
+            FROM tblScoreMaster
+            WHERE scrM_MatchName IN ({placeholders})
+              AND scrM_PlayMIdStrikerName IS NOT NULL
+              AND scrM_PlayMIdBowlerName IS NOT NULL
+        """
+        params = list(matches)
+
+        if day:
+            query += " AND scrM_DayNo = ?"
+            params.append(int(day))
+        if inning:
+            query += " AND scrM_InningNo = ?"
+            params.append(int(inning))
+        if session:
+            query += " AND scrM_SessionNo = ?"
+            params.append(int(session))
+
+        df = pd.read_sql(query, conn, params=params)
+        conn.close()
+
+        batters = sorted(df["Batter"].dropna().unique().tolist())
+        bowlers = sorted(df["Bowler"].dropna().unique().tolist())
+        return batters, bowlers
+
+    except Exception as e:
+        print("❌ get_players_by_match Error:", e)
+        return [], []
+
+
+def get_filtered_score_dataMSSQL(
+    conn, match_names, batters=None, bowlers=None, inning=None,
+    session=None, day=None, phase=None, from_over=None, to_over=None, type=None, ball_phase=None
+):
+    import pandas as pd
+
+    # 🔄 Convert match names to IDs
+    match_df = pd.read_sql(
+        "SELECT mchM_Id, mchM_MatchName FROM tblMatchMaster WHERE mchM_MatchName IN ({})".format(
+            ','.join(['?'] * len(match_names))
+        ),
+        conn, params=match_names
+    )
+    match_id_map = dict(zip(match_df['mchM_MatchName'], match_df['mchM_Id']))
+    match_ids = list(match_id_map.values())
+
+    # 🔍 Base query
+    query = """
+    SELECT * FROM tblScoreMaster
+    WHERE scrM_MchMId IN ({match_ids})
+    AND scrM_IsValidBall = 1
+    """.format(match_ids=','.join(['?'] * len(match_ids)))
+
+    params = match_ids
+
+    # ⛳ Filters
+    if batters:
+        query += " AND scrM_PlayMIdStrikerName IN ({})".format(','.join(['?'] * len(batters)))
+        params += batters
+
+    if bowlers:
+        query += " AND scrM_PlayMIdBowlerName IN ({})".format(','.join(['?'] * len(bowlers)))
+        params += bowlers
+
+    if inning:
+        query += " AND scrM_InningNo = ?"
+        params.append(inning)
+
+    if session:
+        query += " AND scrM_SessionNo = ?"
+        params.append(session)
+
+    if from_over and to_over:
+        query += " AND scrM_OverNo BETWEEN ? AND ?"
+        params.extend([int(from_over), int(to_over)])
+
+    df = pd.read_sql(query, conn, params=params)
+    df['MatchName'] = df['scrM_MchMId'].map({v: k for k, v in match_id_map.items()})
+    return df
+
+#========================================================================
+#===========Non query functions
+    
+def create_team_order_summary(df, inn):
+    if df[df["scrM_InningNo"] == inn].empty:
+        return None, None
+
+    bat_team = df[df["scrM_InningNo"] == inn]["scrM_tmMIdBattingName"].dropna().unique()
+    if len(bat_team) == 0:
+        return None, None
+
+    bat_team = bat_team[0]
+    df_inn = df[(df["scrM_IsValidBall"] == 1) & (df["scrM_InningNo"] == inn)].copy()
+    if df_inn.empty:
+        return bat_team, None
+
+    df_inn["BallNumber"] = df_inn.groupby("scrM_InningNo")["scrM_PlayMIdStrikerName"].transform(lambda x: pd.factorize(x)[0])
+    df_inn["Order No"] = pd.cut(df_inn["BallNumber"], bins=[-1, 2, 5, float("inf")], labels=["Top Order", "Middle Order", "Lower Order"])
+
+    def count_runs(d, val): return (d["scrM_DelRuns"] == val).sum()
+
+    summary_rows = []
+    for order in ["Top Order", "Middle Order", "Lower Order"]:
+        group = df_inn[df_inn["Order No"] == order]
+        if not group.empty:
+            balls = group.shape[0]
+            summary_rows.append({
+                "Innings": f"{bat_team} Inn-{inn}", "Order": order,
+                "Runs": group["scrM_DelRuns"].sum(),
+                "S/R": round(group["scrM_DelRuns"].sum() / balls * 100, 2) if balls else 0,
+                "Dots%": round(count_runs(group, 0) / balls * 100, 1) if balls else 0,
+                "1s%": round(count_runs(group, 1) / balls * 100, 1),
+                "2s%": round(count_runs(group, 2) / balls * 100, 1),
+                "3s%": round(count_runs(group, 3) / balls * 100, 1),
+                "Fours%": round(group["scrM_IsBoundry"].sum() / balls * 100, 1),
+                "Sixers%": round(group["scrM_IsSixer"].sum() / balls * 100, 1),
+            })
+
+    # Team total
+    if not df_inn.empty:
+        balls = df_inn.shape[0]
+        summary_rows.append({
+            "Innings": f"{bat_team} Inn-{inn}", "Order": "Team Total",
+            "Runs": df_inn["scrM_DelRuns"].sum(),
+            "S/R": round(df_inn["scrM_DelRuns"].sum() / balls * 100, 2),
+            "Dots%": round(count_runs(df_inn, 0) / balls * 100, 1),
+            "1s%": round(count_runs(df_inn, 1) / balls * 100, 1),
+            "2s%": round(count_runs(df_inn, 2) / balls * 100, 1),
+            "3s%": round(count_runs(df_inn, 3) / balls * 100, 1),
+            "Fours%": round(df_inn["scrM_IsBoundry"].sum() / balls * 100, 1),
+            "Sixers%": round(df_inn["scrM_IsSixer"].sum() / balls * 100, 1),
+        })
+
+    return bat_team, pd.DataFrame(summary_rows)
+
+def render_summary_table(team_name, df):
+    if df.empty:
+        return f"""
+            <div class="text-red-500 text-center">No summary available for {team_name}.</div>
+        """
+
+    headers = df.columns
+    rows = df.to_dict(orient='records')
+
+    html = """
+    <div class="overflow-x-auto max-w-full xl:max-w-[95%] mx-auto">
+        <table class="w-auto min-w-[500px] text-xs bg-custom-50 dark:bg-custom-500/10">
+            <thead class="ltr:text-left rtl:text-right bg-custom-100 dark:bg-custom-500/10">
+                <tr>
+    """
+
+    for col in headers:
+        html += f"""<th class="px-2.5 py-2 font-semibold border-b border-custom-200 dark:border-custom-900">{col}</th>"""
+
+    html += "</tr></thead><tbody>"
+
+    for row in rows:
+        html += "<tr>"
+        for val in row.values():
+            html += f"""<td class="px-2.5 py-2 border-y border-custom-200 dark:border-custom-900">{val}</td>"""
+        html += "</tr>"
+
+    html += "</tbody></table></div>"
+
+    return html
+
+def make_summary_table(team_name, data, orders):
+    if data.empty:
+        return f"<div class='text-red-500 text-center'>No summary available for {team_name}.</div>"
+
+    data = data[data['Order'].isin(orders)]
+    summary_rows = []
+
+    for order in orders:
+        group = data[data['Order'] == order]
+        if not group.empty:
+            summary_rows.append({
+                "No of Innings": len(group),
+                "Order": order,
+                "Runs": group["Runs"].sum(),
+                "S/R": round(group["S/R"].mean(), 2),
+                "Average": round(group["Runs"].sum() / len(group), 2),
+                "Dots%": round(group["Dots%"].mean(), 1),
+                "1s%": round(group["1s%"].mean(), 1),
+                "2s%": round(group["2s%"].mean(), 1),
+                "3s%": round(group["3s%"].mean(), 1),
+                "Fours%": round(group["Fours%"].mean(), 1),
+                "Sixers%": round(group["Sixers%"].mean(), 1),
+            })
+
+    if not summary_rows:
+        return f"<div class='text-red-500 text-center'>No summary available for {team_name}.</div>"
+
+    headers = summary_rows[0].keys()
+    html = """
+    <div class="overflow-x-auto max-w-full xl:max-w-[95%] mx-auto">
+        <table class="w-auto min-w-[500px] text-xs bg-custom-50 dark:bg-custom-500/10">
+            <thead class="ltr:text-left rtl:text-right bg-custom-100 dark:bg-custom-500/10">
+                <tr>
+    """
+
+    for header in headers:
+        html += f"""<th class="px-2.5 py-2 font-semibold border-b border-custom-200 dark:border-custom-900">{header}</th>"""
+    html += "</tr></thead><tbody>"
+
+    for row in summary_rows:
+        html += "<tr>"
+        for val in row.values():
+            html += f"""<td class="px-2.5 py-2 border-y border-custom-200 dark:border-custom-900">{val}</td>"""
+        html += "</tr>"
+
+    html += "</tbody></table></div>"
+    return html
+
+
+def render_kpi_table(title, df):
+    if df.empty:
+        return f"""<div class="text-red-500 text-center">No data available for {title}.</div>"""
+
+    headers = df.columns
+    rows = df.to_dict(orient='records')
+
+    html = f"""
+    <div class="w-full xl:w-1/2">
+        <div class="overflow-x-auto rounded-md border border-slate-200 dark:border-zink-600">
+            <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10 min-w-[500px]">
+                <thead class="ltr:text-left rtl:text-right bg-custom-100 dark:bg-custom-500/10">
+                    <tr>
+    """
+
+    for col in headers:
+        html += f"""<th class="px-2.5 py-2 font-semibold border-b border-custom-200 dark:border-custom-900">{col}</th>"""
+    html += "</tr></thead><tbody>"
+
+    for row in rows:
+        html += "<tr>"
+        for val in row.values():
+            html += f"""<td class="px-2.5 py-2 border-y border-custom-200 dark:border-custom-900">{val}</td>"""
+        html += "</tr>"
+
+    html += "</tbody></table></div></div>"""
+    return html
+
+import pandas as pd
+import numpy as np
+
+def generate_kpi_tables(df, selected_type):
+    if df.empty:
+        return {"No Data": "<p>No data found</p>"}
+
+    tables = {}
+
+    if selected_type == "batter":
+        for batter in df['scrM_PlayMIdStrikerName'].unique():
+            player_df = df[df['scrM_PlayMIdStrikerName'] == batter]
+            summary = {
+                "Match": [],
+                "Inns": [],
+                "Runs": [],
+                "Balls": [],
+                "Avg": [],
+                "S/R": [],
+                "Sb%": [],
+                "Db%": [],
+                "1s%": [],
+                "2s%": [],
+                "3s%": [],
+                "Fours%": [],
+                "Sixers%": [],
+            }
+
+            count_30 = count_50 = count_100 = 0
+
+            # Group by match
+            match_groups = player_df.groupby('scrM_MchMId')
+
+            for match_id, match_group in match_groups:
+                match_name = match_group['MatchName'].iloc[0]
+                innings_played = match_group['scrM_InningNo'].nunique()
+
+                # Group by inning within match
+                grouped = match_group.groupby('scrM_InningNo')
+                for inn, group in grouped:
+                    runs = group['scrM_BatsmanRuns'].sum()
+                    balls = len(group)
+                    fours = (group['scrM_BatsmanRuns'] == 4).sum()
+                    sixers = (group['scrM_BatsmanRuns'] == 6).sum()
+                    singles = (group['scrM_BatsmanRuns'] == 1).sum()
+                    doubles = (group['scrM_BatsmanRuns'] == 2).sum()
+                    triples = (group['scrM_BatsmanRuns'] == 3).sum()
+                    dots = (group['scrM_BatsmanRuns'] == 0).sum()
+
+                    summary["Match"].append(match_name)
+                    summary["Inns"].append(innings_played)
+                    summary["Runs"].append(runs)
+                    summary["Balls"].append(balls)
+                    summary["Avg"].append(round(runs / balls, 2) if balls else 0)
+                    summary["S/R"].append(round((runs / balls) * 100, 2) if balls else 0)
+                    summary["Sb%"].append(round(((singles + doubles + triples) / balls) * 100, 2) if balls else 0)
+                    summary["Db%"].append(round((dots / balls) * 100, 2) if balls else 0)
+                    summary["1s%"].append(round((singles / balls) * 100, 2) if balls else 0)
+                    summary["2s%"].append(round((doubles / balls) * 100, 2) if balls else 0)
+                    summary["3s%"].append(round((triples / balls) * 100, 2) if balls else 0)
+                    summary["Fours%"].append(round((fours / balls) * 100, 2) if balls else 0)
+                    summary["Sixers%"].append(round((sixers / balls) * 100, 2) if balls else 0)
+
+                    if runs >= 30:
+                        count_30 += 1
+                    if runs >= 50:
+                        count_50 += 1
+                    if runs >= 100:
+                        count_100 += 1
+
+            df_table = pd.DataFrame(summary)
+            df_table["30+"] = count_30
+            df_table["50+"] = count_50
+            df_table["100+"] = count_100
+
+            tables[batter] = render_kpi_table(batter, df_table)
+
+    elif selected_type == "bowler":
+        for bowler in df['scrM_PlayMIdBowlerName'].unique():
+            player_df = df[df['scrM_PlayMIdBowlerName'] == bowler]
+            summary = {
+                "Match": [],
+                "Inns": [],
+                "Overs": [],
+                "Runs": [],
+                "Wkts": [],
+                "Eco": [],
+                "Sb%": [],
+                "Db%": [],
+                "Fours%": [],
+                "Sixers%": [],
+                "WD": [],
+                "NB": [],
+            }
+
+            count_2w = count_3w = count_5w = 0
+
+            # Group by match
+            match_groups = player_df.groupby('scrM_MchMId')
+
+            for match_id, match_group in match_groups:
+                match_name = match_group['MatchName'].iloc[0]
+                innings_bowled = match_group['scrM_InningNo'].nunique()
+
+                # Group by inning within match
+                grouped = match_group.groupby('scrM_InningNo')
+                for inn, group in grouped:
+                    total_balls = group.shape[0]
+                    overs = total_balls // 6 + (total_balls % 6) / 10
+                    runs = group['scrM_DelRuns'].sum()
+                    wickets = group['scrM_IsWicket'].sum()
+
+                    singles = (group['scrM_DelRuns'] == 1).sum()
+                    doubles = (group['scrM_DelRuns'] == 2).sum()
+                    triples = (group['scrM_DelRuns'] == 3).sum()
+                    dots = (group['scrM_DelRuns'] == 0).sum()
+                    fours = (group['scrM_DelRuns'] == 4).sum()
+                    sixers = (group['scrM_DelRuns'] == 6).sum()
+                    wides = group['scrM_IsWideBall'].sum()
+                    noballs = group['scrM_IsNoBall'].sum()
+
+                    summary["Match"].append(match_name)
+                    summary["Inns"].append(innings_bowled)
+                    summary["Overs"].append(round(overs, 1))
+                    summary["Runs"].append(runs)
+                    summary["Wkts"].append(wickets)
+                    summary["Eco"].append(round(runs / (overs if overs > 0 else 1), 2))
+                    summary["Sb%"].append(round(((singles + doubles + triples) / total_balls) * 100, 2) if total_balls else 0)
+                    summary["Db%"].append(round((dots / total_balls) * 100, 2) if total_balls else 0)
+                    summary["Fours%"].append(round((fours / total_balls) * 100, 2) if total_balls else 0)
+                    summary["Sixers%"].append(round((sixers / total_balls) * 100, 2) if total_balls else 0)
+                    summary["WD"].append(wides)
+                    summary["NB"].append(noballs)
+
+                    if wickets >= 2:
+                        count_2w += 1
+                    if wickets >= 3:
+                        count_3w += 1
+                    if wickets >= 5:
+                        count_5w += 1
+
+            df_table = pd.DataFrame(summary)
+            df_table["2W+"] = count_2w
+            df_table["3W+"] = count_3w
+            df_table["5W+"] = count_5w
+
+            tables[bowler] = render_kpi_table(bowler, df_table)
+
+    else:
+        tables["Invalid Type"] = "<p>Unknown type selected.</p>"
+
+    return tables
+
+
+
+def render_total_kpi_table(title, df):
+    if df.empty:
+        return f"""<div class="text-red-500 text-center">No total data available for {title}.</div>"""
+
+    headers = df.columns
+    row = df.iloc[0].to_dict()
+
+    html = f"""
+    <div class="w-full xl:w-1/2 mt-8">
+        <div class="overflow-x-auto rounded-md border border-slate-200 dark:border-zink-600">
+            <table class="w-full text-xs bg-custom-50 dark:bg-custom-500/10 min-w-[500px]">
+                <thead class="ltr:text-left rtl:text-right bg-custom-100 dark:bg-custom-500/10">
+                    <tr>
+    """
+
+    for col in headers:
+        html += f"""<th class="px-2.5 py-2 font-semibold border-b border-custom-200 dark:border-custom-900">{col}</th>"""
+    html += "</tr></thead><tbody><tr>"
+
+    for col in headers:
+        val = row[col]
+        html += f"""<td class="px-2.5 py-2 border-y border-custom-200 dark:border-custom-900">{val}</td>"""
+
+    html += "</tr></tbody></table></div></div>"
+    return html
+
+
+
+import pandas as pd
+import numpy as np
+
+def generate_total_kpi_table(df, selected_type):
+    if df.empty:
+        return {"No Data": "<p>No data found</p>"}
+
+    tables = {}
+
+    if selected_type == "batter":
+        for batter in df['scrM_PlayMIdStrikerName'].dropna().unique():
+            player_df = df[df['scrM_PlayMIdStrikerName'] == batter]
+
+            runs = player_df['scrM_BatsmanRuns'].sum()
+            balls = len(player_df)
+            innings = player_df.groupby(['scrM_MchMId', 'scrM_InningNo']).ngroups
+
+            fours = (player_df['scrM_BatsmanRuns'] == 4).sum()
+            sixers = (player_df['scrM_BatsmanRuns'] == 6).sum()
+            singles = (player_df['scrM_BatsmanRuns'] == 1).sum()
+            doubles = (player_df['scrM_BatsmanRuns'] == 2).sum()
+            triples = (player_df['scrM_BatsmanRuns'] == 3).sum()
+            dots = (player_df['scrM_BatsmanRuns'] == 0).sum()
+
+            scores_by_innings = player_df.groupby(['scrM_MchMId', 'scrM_InningNo'])['scrM_BatsmanRuns'].sum()
+            count_30 = (scores_by_innings >= 30).sum()
+            count_50 = (scores_by_innings >= 50).sum()
+            count_100 = (scores_by_innings >= 100).sum()
+
+            total_row = {
+                "Inns": innings,
+                "Runs": runs,
+                "Balls": balls,
+                "Avg": round(runs / innings, 2) if innings > 0 else 0,
+                "S/R": round((runs / balls) * 100, 2) if balls > 0 else 0,
+                "Sb%": round(((singles + doubles + triples) / balls) * 100, 2) if balls > 0 else 0,
+                "Db%": round((dots / balls) * 100, 2) if balls > 0 else 0,
+                "1s%": round((singles / balls) * 100, 2) if balls > 0 else 0,
+                "2s%": round((doubles / balls) * 100, 2) if balls > 0 else 0,
+                "3s%": round((triples / balls) * 100, 2) if balls > 0 else 0,
+                "Fours%": round((fours / balls) * 100, 2) if balls > 0 else 0,
+                "Sixers%": round((sixers / balls) * 100, 2) if balls > 0 else 0,
+                "30+": count_30,
+                "50+": count_50,
+                "100+": count_100,
+            }
+
+            df_total = pd.DataFrame([total_row])
+            tables[batter] = render_total_kpi_table(batter, df_total)
+
+    elif selected_type == "bowler":
+        for bowler in df['scrM_PlayMIdBowlerName'].dropna().unique():
+            player_df = df[df['scrM_PlayMIdBowlerName'] == bowler]
+
+            total_balls = player_df.shape[0]
+            overs = total_balls // 6 + (total_balls % 6) / 10
+            runs = player_df['scrM_DelRuns'].sum()
+            wickets = player_df['scrM_IsWicket'].sum()
+
+            singles = (player_df['scrM_DelRuns'] == 1).sum()
+            doubles = (player_df['scrM_DelRuns'] == 2).sum()
+            triples = (player_df['scrM_DelRuns'] == 3).sum()
+            dots = (player_df['scrM_DelRuns'] == 0).sum()
+            fours = (player_df['scrM_DelRuns'] == 4).sum()
+            sixers = (player_df['scrM_DelRuns'] == 6).sum()
+
+            wides = player_df['scrM_IsWideBall'].sum()
+            noballs = player_df['scrM_IsNoBall'].sum()
+
+            wickets_by_innings = player_df.groupby(['scrM_MchMId', 'scrM_InningNo'])['scrM_IsWicket'].sum()
+            count_2w = (wickets_by_innings >= 2).sum()
+            count_3w = (wickets_by_innings >= 3).sum()
+            count_5w = (wickets_by_innings >= 5).sum()
+
+            total_row = {
+                "Inns": player_df.groupby(['scrM_MchMId', 'scrM_InningNo']).ngroups,
+                "Overs": round(overs, 1),
+                "Runs": runs,
+                "Wkts": wickets,
+                "Eco": round(runs / overs, 2) if overs > 0 else 0,
+                "Sb%": round(((singles + doubles + triples) / total_balls) * 100, 2) if total_balls > 0 else 0,
+                "Db%": round((dots / total_balls) * 100, 2) if total_balls > 0 else 0,
+                "Fours%": round((fours / total_balls) * 100, 2) if total_balls > 0 else 0,
+                "Sixers%": round((sixers / total_balls) * 100, 2) if total_balls > 0 else 0,
+                "WD": wides,
+                "NB": noballs,
+                "2W+": count_2w,
+                "3W+": count_3w,
+                "5W+": count_5w,
+            }
+
+            df_total = pd.DataFrame([total_row])
+            tables[bowler] = render_total_kpi_table(bowler, df_total)
+
+    else:
+        tables["Invalid Type"] = "<p>Unknown type selected.</p>"
+
+    return tables
+
+
+
+def generate_kpi_with_summary_tables(df, selected_type):
+    """Generate a merged table HTML with player name heading above summary table and KPI table below."""
+    if df.empty:
+        return {"No Data": "<p>No data available</p>"}
+
+    kpi_tables = generate_kpi_tables(df, selected_type)
+    summary_tables = generate_total_kpi_table(df, selected_type)
+
+    combined_tables = {}
+    for player in kpi_tables:
+        match_kpi_html = kpi_tables.get(player, "")
+        total_kpi_html = summary_tables.get(player, "")
+
+        combined_html = f"""
+            <div class="mb-6">
+                <h4 class="text-15 font-semibold text-center text-[#001D6E] mb-4">{player}</h4>
+                
+                <div class="overflow-x-auto rounded-md mb-4">
+                    {total_kpi_html}  <!-- Summary table -->
+                </div>
+
+                <div class="overflow-x-auto rounded-md">
+                    {match_kpi_html}  <!-- KPI table with its own heading -->
+                </div>
+            </div>
+        """
+        combined_tables[player] = combined_html
+
+    return combined_tables
+
+
+def generate_commentary(ball):
+    """Generates a descriptive commentary string for a given ball."""
+    
+    bowler = ball.get('scrM_PlayMIdBowlerName', 'Bowler')
+    batter = ball.get('scrM_PlayMIdStrikerName', 'Batter')
+    delivery_type = ball.get('scrM_DeliveryType_zName')
+    shot_type = ball.get('scrM_ShotType_zName')
+    runs = ball.get('scrM_BatsmanRuns', 0)
+    is_wicket = ball.get('scrM_IsWicket', 0)
+    wicket_type = ball.get('scrM_DecisionFinal_zName')
+    
+    # Combine all possible fielder names
+    fielder = ball.get('scrM_playMIdCaughtName') or ball.get('scrM_playMIdRunOutName') or ball.get('scrM_playMIdStumpingName')
+
+    # Start the commentary
+    commentary = f"{bowler} to {batter}"
+
+    # Add delivery type
+    if delivery_type and str(delivery_type).lower().strip() not in ['nan', 'none', '']:
+        commentary += f", {delivery_type}"
+
+    # Add shot type
+    if shot_type and str(shot_type).lower().strip() not in ['nan', 'none', '']:
+        commentary += f", {shot_type}"
+
+    # Add runs or wicket info
+    if is_wicket == 1 and wicket_type and str(wicket_type).lower().strip() not in ['nan', 'none', '']:
+        wicket_details = f"OUT ({wicket_type}"
+        if fielder and str(fielder).lower().strip() not in ['nan', 'none', '']:
+            wicket_details += f" by {fielder}"
+        wicket_details += ")"
+        commentary += f', <span class="text-red-500 font-semibold">{wicket_details}</span>'
+    else:
+        if runs == 1:
+            commentary += ", 1 run"
+        elif runs > 1:
+            commentary += f", {runs} runs"
+        else:
+            commentary += ", no run"
+        
+    return commentary
+
+def generate_line_length_report(df):
+    """
+    Analyzes ball-by-ball data to generate a line and length report using X/Y coordinates.
+    """
+    if df.empty or 'scrM_PitchX' not in df.columns or 'scrM_PitchY' not in df.columns:
+        return None
+
+    df_ll = df.copy()
+
+    # Clean data: convert to numeric and remove rows with invalid pitch positions
+    df_ll['scrM_PitchX'] = pd.to_numeric(df_ll['scrM_PitchX'], errors='coerce')
+    df_ll['scrM_PitchY'] = pd.to_numeric(df_ll['scrM_PitchY'], errors='coerce')
+    df_ll = df_ll.dropna(subset=['scrM_PitchX', 'scrM_PitchY'])
+
+
+    if df_ll.empty:
+        return None
+
+    # Define Line and Length zones based on a 170x280 coordinate system
+    line_bins = [-float('inf'), 50, 70, 80, 84, 88, 95, float('inf')]
+    line_labels = ['Way Outside Off', 'Outside Off', 'Just Outside Off', 'Off Stump', 'Middle Stump', 'Leg Stump', 'Outside Leg']
+    
+    length_bins = [-float('inf'), 80, 120, 180, 220, 250, 270, float('inf')]
+    length_labels = ['Short Pitch', 'Short of Good', 'Good Length', 'Overpitch', 'Full Length', 'Yorker', 'Fulltoss']
+
+    df_ll['LineZone'] = pd.cut(df_ll['scrM_PitchX'], bins=line_bins, labels=line_labels, right=False)
+    df_ll['LengthZone'] = pd.cut(df_ll['scrM_PitchY'], bins=length_bins, labels=length_labels, right=False)
+
+
+    df_ll['Zone'] = df_ll['LengthZone'].astype(str) + '-' + df_ll['LineZone'].astype(str)
+    
+    # Pre-calculate boundaries and wickets
+    df_ll['fours'] = (df_ll['scrM_IsBoundry'] == 1).astype(int)
+    df_ll['sixes'] = (df_ll['scrM_IsSixer'] == 1).astype(int)
+    df_ll['boundaries'] = df_ll['fours'] + df_ll['sixes']
+
+    # Calculate overall totals
+    total_balls = len(df_ll)
+    total_runs = df_ll['scrM_BatsmanRuns'].sum()
+    total_boundaries = df_ll['boundaries'].sum()
+    total_wickets = df_ll['scrM_IsWicket'].sum()
+
+    # Group by the new zone and aggregate statistics
+    zone_summary = df_ll.groupby('Zone').agg(
+        balls=('Zone', 'count'),
+        runs=('scrM_BatsmanRuns', 'sum'),
+        boundaries=('boundaries', 'sum'),
+        wickets=('scrM_IsWicket', 'sum')
+    ).reset_index()
+
+    # Calculate percentages
+    if total_balls > 0:
+        zone_summary['balls_percentage'] = (zone_summary['balls'] / total_balls * 100)
+    else:
+        zone_summary['balls_percentage'] = 0
+
+    # Prepare data for the template
+    heatmap_data = {}
+    all_zones = [f"{length}-{line}" for length in length_labels for line in line_labels]
+    
+    # Set default values for all zones
+    for zone in all_zones:
+        heatmap_data[zone] = {'balls': 0, 'runs': 0, 'boundaries': 0, 'wickets': 0, 'balls_percentage': 0.0}
+        
+    # Populate with actual data
+    for _, row in zone_summary.iterrows():
+        zone = row['Zone']
+        if zone in heatmap_data:
+            heatmap_data[zone] = {
+                'balls': int(row['balls']),
+                'runs': int(row['runs']),
+                'boundaries': int(row['boundaries']),
+                'wickets': int(row['wickets']),
+                'balls_percentage': round(row['balls_percentage'], 1)
+            }
+
+    # Prepare table data from the complete heatmap data to ensure all zones are included
+    table_data = []
+    for zone, data in heatmap_data.items():
+        table_data.append({
+            'Zone': zone,
+            'balls': data['balls'],
+            'runs': data['runs'],
+            'boundaries': data['boundaries'],
+            'wickets': data['wickets'],
+            'balls_percentage': data['balls_percentage']
+        })
+
+    # Prepare totals
+    totals = {
+        'balls': int(total_balls),
+        'runs': int(total_runs),
+        'boundaries': int(total_boundaries),
+        'wickets': int(total_wickets)
+    }
+
+    return {
+        'heatmap_data': heatmap_data,
+        'table_data': table_data,
+        'totals': totals,
+        'pitch_points': df_ll[['scrM_PitchX', 'scrM_PitchY', 'scrM_BatsmanRuns', 'scrM_IsWicket', 'scrM_StrikerBatterSkill', 'scrM_BowlerSkill']].to_dict(orient='records')
+    }

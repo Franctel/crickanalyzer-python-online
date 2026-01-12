@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pitch Zone Mapper</title>
+    <style>
+        body { font-family: Arial; padding: 20px; background: #f0f0f0; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
+        .pitch-container { position: relative; display: inline-block; border: 2px solid #333; }
+        img { display: block; }
+        .zone-line { position: absolute; left: 0; right: 0; height: 2px; background: red; opacity: 0.7; }
+        .zone-label { position: absolute; left: -150px; background: yellow; padding: 2px 5px; font-size: 11px; font-weight: bold; }
+        .controls { margin: 20px 0; }
+        input[type="number"] { width: 60px; margin: 0 5px; }
+        .wicket-point { position: absolute; width: 15px; height: 15px; background: red; border-radius: 50%; border: 2px solid white; transform: translate(-50%, -50%); }
+        h3 { color: #333; }
+        .info { background: #e8f4f8; padding: 10px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🎯 Pitch Zone Mapper - Find Correct LENGTH Bins</h2>
+        
+        <div class="info">
+            <strong>Your Wicket Positions (Y coordinates):</strong><br>
+            Y=81 (Should be Yorker), Y=142, Y=147, Y=150, Y=161, Y=165, Y=166, Y=190, Y=213
+        </div>
+
+        <div class="controls">
+            <h3>Adjust Zone Boundaries (Y-coordinates, 0-280):</h3>
+            <label>Fulltoss/Yorker: <input type="number" id="bin1" value="50" step="5"></label><br>
+            <label>Yorker/Full Length: <input type="number" id="bin2" value="90" step="5"></label><br>
+            <label>Full Length/Overpitch: <input type="number" id="bin3" value="140" step="5"></label><br>
+            <label>Overpitch/Good Length: <input type="number" id="bin4" value="190" step="5"></label><br>
+            <label>Good Length/Short of Good: <input type="number" id="bin5" value="230" step="5"></label><br>
+            <label>Short of Good/Short: <input type="number" id="bin6" value="260" step="5"></label><br>
+            <button onclick="updateLines()">Update Lines</button>
+        </div>
+
+        <div class="pitch-container" id="pitch-container">
+            <img src="static/RightHandPitchPad.jpg" id="pitch-img" style="width: 340px; height: 560px;">
+            <!-- Zone lines will be added here -->
+        </div>
+
+        <div id="output" style="margin-top: 20px; background: #f9f9f9; padding: 15px; border-radius: 5px;">
+            <h3>Copy these values to your code:</h3>
+            <pre id="code-output"></pre>
+        </div>
+    </div>
+
+    <script>
+        const wickets = [
+            {x: 56, y: 81, label: 'Y=81 (Yorker?)'},
+            {x: 71, y: 142}, {x: 56, y: 147}, {x: 63, y: 150},
+            {x: 85, y: 161}, {x: 103, y: 165}, {x: 59, y: 166},
+            {x: 58, y: 190}, {x: 130, y: 213}
+        ];
+
+        const labels = ['Fulltoss', 'Yorker', 'Full Length', 'Overpitch', 'Good Length', 'Short of Good', 'Short Pitch'];
+
+        function updateLines() {
+            const container = document.getElementById('pitch-container');
+            const img = document.getElementById('pitch-img');
+            const imgHeight = img.offsetHeight;
+            const scale = imgHeight / 280; // Scale from 280 to actual display height
+
+            // Clear existing lines and wickets
+            container.querySelectorAll('.zone-line, .zone-label, .wicket-point').forEach(el => el.remove());
+
+            // Get bin values
+            const bins = [
+                0,
+                parseInt(document.getElementById('bin1').value),
+                parseInt(document.getElementById('bin2').value),
+                parseInt(document.getElementById('bin3').value),
+                parseInt(document.getElementById('bin4').value),
+                parseInt(document.getElementById('bin5').value),
+                parseInt(document.getElementById('bin6').value),
+                280
+            ];
+
+            // Draw zone lines
+            for (let i = 1; i < bins.length - 1; i++) {
+                const y = bins[i] * scale;
+                
+                const line = document.createElement('div');
+                line.className = 'zone-line';
+                line.style.top = y + 'px';
+                container.appendChild(line);
+
+                const label = document.createElement('div');
+                label.className = 'zone-label';
+                label.style.top = (y - 10) + 'px';
+                label.textContent = `${labels[i-1]}/${labels[i]} (Y=${bins[i]})`;
+                container.appendChild(label);
+            }
+
+            // Plot wickets
+            wickets.forEach(w => {
+                const x = (w.x / 170) * img.offsetWidth;
+                const y = (w.y / 280) * imgHeight;
+                
+                const point = document.createElement('div');
+                point.className = 'wicket-point';
+                point.style.left = x + 'px';
+                point.style.top = y + 'px';
+                point.title = w.label || `X=${w.x}, Y=${w.y}`;
+                container.appendChild(point);
+            });
+
+            // Generate code output
+            const codeOutput = document.getElementById('code-output');
+            codeOutput.textContent = `# Python (utils.py):
+length_bins = [-float('inf'), ${bins.slice(1, -1).join(', ')}, float('inf')]
+length_labels = ${JSON.stringify(labels)}
+
+# JavaScript (apps-chat.html):
+const getLengthZone = (y) => {
+    if (y < ${bins[1]}) return '${labels[0]}';
+    if (y < ${bins[2]}) return '${labels[1]}';
+    if (y < ${bins[3]}) return '${labels[2]}';
+    if (y < ${bins[4]}) return '${labels[3]}';
+    if (y < ${bins[5]}) return '${labels[4]}';
+    if (y < ${bins[6]}) return '${labels[5]}';
+    return '${labels[6]}';
+};`;
+        }
+
+        // Initialize on load
+        window.onload = updateLines;
+    </script>
+</body>
+</html>
