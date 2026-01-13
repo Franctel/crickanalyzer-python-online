@@ -26,3 +26,13 @@ Thumbs.db
 *.sqlite
 *.db
 config.json
+
+# Large / unwanted files
+*.exe
+*.sql
+*.db
+*.sqlite
+
+# Electron build folder
+flask-electron/
+
