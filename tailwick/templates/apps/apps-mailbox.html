@@ -145,21 +145,21 @@
 
         <!-- Innings summary -->
         {% if match_innings %}
-        <div class="flex items-center justify-center mt-6 gap-8">
-          <div class="text-center space-y-3">
+        <div id="innings-summary-row-report" class="flex items-center justify-center mt-6 w-full px-4">
+          <div class="text-center space-y-3 md:mr-6 lg:mr-10 md:text-right">
             {% for inn in match_innings if inn.Inn_Inning in [1,3] %}
             <div>
               <p class="font-bold">{{ inn.TeamShortName }}</p>
-              <p>Innings {{ inn.Inn_Inning }}: {{ inn.Inn_TotalRuns }}/{{ inn.Inn_Wickets }} ({{ inn.Inn_Overs }} Ov)</p>
+              <p>Innings {{ inn.Inn_Inning }}: {{ inn.Inn_TotalRuns }}/{{ inn.Inn_Wickets }} ({{ inn.get('Inn_OversDisplay', inn.get('Inn_Overs')) }} Ov)</p>
             </div>
             {% endfor %}
           </div>
-          <div><img src="{{ url_for('static', filename='VS.png') }}" class="h-12 mx-auto" alt="VS"></div>
-          <div class="text-center space-y-3">
+          <div><img src="{{ url_for('static', filename='VS.png') }}" class="h-12 mx-2 md:mx-4" alt="VS"></div>
+          <div class="text-center space-y-3 md:ml-6 lg:ml-10 md:text-left">
             {% for inn in match_innings if inn.Inn_Inning in [2,4] %}
             <div>
               <p class="font-bold">{{ inn.TeamShortName }}</p>
-              <p>Innings {{ inn.Inn_Inning }}: {{ inn.Inn_TotalRuns }}/{{ inn.Inn_Wickets }} ({{ inn.Inn_Overs }} Ov)</p>
+              <p>Innings {{ inn.Inn_Inning }}: {{ inn.Inn_TotalRuns }}/{{ inn.Inn_Wickets }} ({{ inn.get('Inn_OversDisplay', inn.get('Inn_Overs')) }} Ov)</p>
             </div>
             {% endfor %}
           </div>
@@ -854,26 +854,26 @@ document.addEventListener("DOMContentLoaded", function() {
           <p>{{ match_header.GroundName }}</p>
 
           {% if match_innings %}
-          <div class="flex items-center justify-center mt-6 gap-8">
+          <div class="flex items-center justify-center mt-6 w-full px-4">
             <!-- Left -->
-            <div class="text-center space-y-3">
+            <div class="text-center space-y-3 md:mr-6 lg:mr-10 md:text-right">
               {% for inn in match_innings if inn.Inn_Inning in [1,3] %}
               <div>
                 <p class="font-bold">{{ inn.TeamShortName }}</p>
                 <p>
-                  Innings {{ inn.Inn_Inning }}: {{ inn.Inn_TotalRuns }}/{{ inn.Inn_Wickets }} ({{ inn.Inn_Overs }} Ov)
+                  Innings {{ inn.Inn_Inning }}: {{ inn.Inn_TotalRuns }}/{{ inn.Inn_Wickets }} ({{ inn.get('Inn_OversDisplay', inn.get('Inn_Overs')) }} Ov)
                 </p>
               </div>
               {% endfor %}
             </div>
-            <div><img src="{{ url_for('static', filename='VS.png') }}" class="h-12 mx-auto" alt="VS"></div>
+            <div><img src="{{ url_for('static', filename='VS.png') }}" class="h-12 mx-2 md:mx-4" alt="VS"></div>
             <!-- Right -->
-            <div class="text-center space-y-3">
+            <div class="text-center space-y-3 md:ml-6 lg:ml-10 md:text-left">
               {% for inn in match_innings if inn.Inn_Inning in [2,4] %}
               <div>
                 <p class="font-bold">{{ inn.TeamShortName }}</p>
                 <p>
-                  Innings {{ inn.Inn_Inning }}: {{ inn.Inn_TotalRuns }}/{{ inn.Inn_Wickets }} ({{ inn.Inn_Overs }} Ov)
+                  Innings {{ inn.Inn_Inning }}: {{ inn.Inn_TotalRuns }}/{{ inn.Inn_Wickets }} ({{ inn.get('Inn_OversDisplay', inn.get('Inn_Overs')) }} Ov)
                 </p>
               </div>
               {% endfor %}
@@ -1291,7 +1291,7 @@ document.addEventListener("DOMContentLoaded", function() {
             </div>
             {% endfor %}
           {% endif %}
-      {% elif match_format_code in [26, 28] %}
+      {% elif match_format_code in [26, 28, 167] %}
         {% if phase_reports %}
 
           <!-- 🆕 Phase Tabs Strip -->
@@ -2199,10 +2199,24 @@ document.addEventListener("DOMContentLoaded", function() {
   .text-sm { font-size: clamp(.72rem, 2.2vw, .8rem) !important; line-height: 1.15 !important; }
 
   /* Innings header row */
-  .card-body .flex.items-center.justify-center.mt-6.gap-8 {
-    flex-direction: column !important;
-    gap: .35rem !important;
+  @media (max-width: 640px) {
+    .card-body .flex.items-center.justify-center.mt-6.gap-8 {
+      flex-direction: column !important;
+      gap: .35rem !important;
+    }
   }
+
+  #innings-summary-row > div:first-child,
+  #innings-summary-row-report > div:first-child {
+    text-align: left !important;
+  }
+
+  #innings-summary-row > div:last-child,
+  #innings-summary-row-report > div:last-child {
+    text-align: right !important;
+  }
+
+
 
   /* Inning pills */
   .inning-tab { font-size: .72rem !important; padding: .25rem .5rem !important; border-radius: 9999px !important; }

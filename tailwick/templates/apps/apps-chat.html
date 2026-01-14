@@ -933,99 +933,198 @@ function downloadPlayerPDF(playerName) {
                             }
             
                             // ----- Replace your existing attachHeatmapClickHandlers function with this -----
+                            // function attachHeatmapClickHandlers(selectedMetric) {
+                            // const cells = document.querySelectorAll('#heatmap-matrix td[data-zone]');
+                            // if (!cells || !cells.length) return;
+            
+                            // cells.forEach(cell => {
+                            //     cell.style.cursor = 'pointer';
+                            //     cell.addEventListener('click', () => {
+                            //     const zone = cell.dataset.zone;
+                            //     const displayText = cell.innerText.trim();
+                            //     const metric = selectedMetric || (document.getElementById('metric')?.value || '');
+            
+                            //     // Get balls in this zone
+                            //     let balls = (window.currentPitchMapPoints || []).filter(b => {
+                            //         const x = Number(b.scrM_PitchX), y = Number(b.scrM_PitchY);
+                            //         const line = getLineZone(x), length = getLengthZone(y);
+                            //         return `${length}-${line}` === zone;
+                            //     });
+            
+                            //     if (!balls.length) {
+                            //         alert('No balls found for this zone.');
+                            //         return;
+                            //     }
+            
+                            //     // If a metric is selected, apply additional filtering (your existing logic)
+                            //     // --- Metric-specific filtering ---
+                            //     let filteredBalls = balls;
+                            //     if (metric && metric.toLowerCase() === 'wicket') {
+                            //     // keep only actual wicket deliveries
+                            //     filteredBalls = balls.filter(b =>
+                            //         Number(b.scrM_IsWicket) === 1 ||
+                            //         Number(b.is_wicket) === 1 ||
+                            //         Number(b.scrM_IsWicketBall) === 1 ||
+                            //         (b.scrM_WicketType && String(b.scrM_WicketType).trim() !== '' &&
+                            //         String(b.scrM_WicketType).toLowerCase() !== 'none')
+                            //     );
+                            //     }
+            
+            
+                            //     // Collect actual video file URLs from the filtered balls (prefer scrM_Video{n}URL)
+                            //     const videoFiles = [];
+                            //     filteredBalls.forEach(b => {
+                            //         for (let i = 1; i <= 6; i++) {
+                            //         const f1 = b[`scrM_Video${i}URL`];
+                            //         const f2 = b[`scrM_Video${i}Url`];
+                            //         if (f1) { videoFiles.push(f1); break; }
+                            //         if (f2) { videoFiles.push(f2); break; }
+                            //         }
+                            //         // fallback video fields
+                            //         if (!videoFiles.length || videoFiles[videoFiles.length-1] == null) {
+                            //         const fb = b.video_url || b.scrM_VideoFile || b.scrM_Video1URL || b.scrM_Video1Url || b.video || null;
+                            //         if (fb) videoFiles.push(fb);
+                            //         }
+                            //     });
+            
+                            //     // De-duplicate
+                            //     const uniqVideoFiles = [...new Set(videoFiles.filter(Boolean))];
+            
+                            //     // If we have video URLs -> resolve them and open /video_player?videos=url1,url2,...
+                            //     if (uniqVideoFiles.length > 0) {
+                            //         const videoUrls = uniqVideoFiles.map(resolveVideoUrl);
+                            //         const params = new URLSearchParams();
+                            //         params.append('videos', videoUrls.join(','));
+                            //         // optionally include metadata
+                            //         params.append('metric', metric || '');
+                            //         params.append('zone', zone);
+                            //         window.open(`/video_player?${params.toString()}`, '_blank');
+                            //         return;
+                            //     }
+            
+                            //     // If no video URLs but we have delivery ids -> if single delivery id, call del_id
+                            //     const delIds = filteredBalls.map(b => b.scrM_DelId || b.scrM_DelID || b.scrM_BallID || b.scrM_BallId || b.id || b.ball_id).filter(Boolean);
+            
+                            //     if (delIds.length === 1) {
+                            //         const params = new URLSearchParams();
+                            //         params.append('del_id', String(delIds[0]));
+                            //         window.open(`/video_player?${params.toString()}`, '_blank');
+                            //         return;
+                            //     }
+            
+                            //     // If multiple delivery ids exist but no direct URLs, try to open first delivery as fallback
+                            //     if (delIds.length > 1) {
+                            //         // Best-effort: open video for first delivery id
+                            //         const params = new URLSearchParams();
+                            //         params.append('del_id', String(delIds[0]));
+                            //         params.append('zone', zone);
+                            //         window.open(`/video_player?${params.toString()}`, '_blank');
+                            //         return;
+                            //     }
+            
+                            //     alert('No video files or delivery identifiers found for this zone.');
+                            //     });
+                            // });
+                            // }
+
                             function attachHeatmapClickHandlers(selectedMetric) {
-                            const cells = document.querySelectorAll('#heatmap-matrix td[data-zone]');
-                            if (!cells || !cells.length) return;
-            
-                            cells.forEach(cell => {
-                                cell.style.cursor = 'pointer';
-                                cell.addEventListener('click', () => {
-                                const zone = cell.dataset.zone;
-                                const displayText = cell.innerText.trim();
-                                const metric = selectedMetric || (document.getElementById('metric')?.value || '');
-            
-                                // Get balls in this zone
-                                let balls = (window.currentPitchMapPoints || []).filter(b => {
-                                    const x = Number(b.scrM_PitchX), y = Number(b.scrM_PitchY);
-                                    const line = getLineZone(x), length = getLengthZone(y);
-                                    return `${length}-${line}` === zone;
-                                });
-            
-                                if (!balls.length) {
-                                    alert('No balls found for this zone.');
-                                    return;
-                                }
-            
-                                // If a metric is selected, apply additional filtering (your existing logic)
-                                // --- Metric-specific filtering ---
-                                let filteredBalls = balls;
-                                if (metric && metric.toLowerCase() === 'wicket') {
-                                // keep only actual wicket deliveries
-                                filteredBalls = balls.filter(b =>
-                                    Number(b.scrM_IsWicket) === 1 ||
-                                    Number(b.is_wicket) === 1 ||
-                                    Number(b.scrM_IsWicketBall) === 1 ||
-                                    (b.scrM_WicketType && String(b.scrM_WicketType).trim() !== '' &&
-                                    String(b.scrM_WicketType).toLowerCase() !== 'none')
-                                );
-                                }
-            
-            
-                                // Collect actual video file URLs from the filtered balls (prefer scrM_Video{n}URL)
-                                const videoFiles = [];
-                                filteredBalls.forEach(b => {
-                                    for (let i = 1; i <= 6; i++) {
-                                    const f1 = b[`scrM_Video${i}URL`];
-                                    const f2 = b[`scrM_Video${i}Url`];
-                                    if (f1) { videoFiles.push(f1); break; }
-                                    if (f2) { videoFiles.push(f2); break; }
-                                    }
-                                    // fallback video fields
-                                    if (!videoFiles.length || videoFiles[videoFiles.length-1] == null) {
-                                    const fb = b.video_url || b.scrM_VideoFile || b.scrM_Video1URL || b.scrM_Video1Url || b.video || null;
-                                    if (fb) videoFiles.push(fb);
-                                    }
-                                });
-            
-                                // De-duplicate
-                                const uniqVideoFiles = [...new Set(videoFiles.filter(Boolean))];
-            
-                                // If we have video URLs -> resolve them and open /video_player?videos=url1,url2,...
-                                if (uniqVideoFiles.length > 0) {
-                                    const videoUrls = uniqVideoFiles.map(resolveVideoUrl);
-                                    const params = new URLSearchParams();
-                                    params.append('videos', videoUrls.join(','));
-                                    // optionally include metadata
-                                    params.append('metric', metric || '');
-                                    params.append('zone', zone);
-                                    window.open(`/video_player?${params.toString()}`, '_blank');
-                                    return;
-                                }
-            
-                                // If no video URLs but we have delivery ids -> if single delivery id, call del_id
-                                const delIds = filteredBalls.map(b => b.scrM_DelId || b.scrM_DelID || b.scrM_BallID || b.scrM_BallId || b.id || b.ball_id).filter(Boolean);
-            
-                                if (delIds.length === 1) {
-                                    const params = new URLSearchParams();
-                                    params.append('del_id', String(delIds[0]));
-                                    window.open(`/video_player?${params.toString()}`, '_blank');
-                                    return;
-                                }
-            
-                                // If multiple delivery ids exist but no direct URLs, try to open first delivery as fallback
-                                if (delIds.length > 1) {
-                                    // Best-effort: open video for first delivery id
-                                    const params = new URLSearchParams();
-                                    params.append('del_id', String(delIds[0]));
-                                    params.append('zone', zone);
-                                    window.open(`/video_player?${params.toString()}`, '_blank');
-                                    return;
-                                }
-            
-                                alert('No video files or delivery identifiers found for this zone.');
-                                });
-                            });
-                            }
+  const table = document.querySelector('#heatmap-matrix');
+  if (!table) return;
+
+  // ✅ prevent multiple bindings
+  if (table.dataset.clickBound === "1") return;
+  table.dataset.clickBound = "1";
+
+  table.addEventListener('click', (e) => {
+    const cell = e.target.closest('td[data-zone]');
+    if (!cell) return;
+
+    const zoneKey = cell.dataset.zone;   // example: "Good Length-Outside Off"
+    const metric = selectedMetric || (document.getElementById('metric')?.value || '');
+
+    console.log("✅ Clicked zone:", zoneKey);
+
+    // ✅ Step 1: Pick balls using zone_key OR Zone (support both)
+    let balls = (window.currentPitchMapPoints || []).filter(b => {
+      const z = b.zone_key || b.Zone || '';
+      return String(z).trim() === String(zoneKey).trim();
+    });
+
+    console.log("✅ Balls found in zone:", balls.length);
+
+    if (!balls.length) {
+      alert("No balls found for this zone.");
+      return;
+    }
+
+    // ✅ Step 2: Metric filter (only Wicket shown here)
+    let filteredBalls = balls;
+    if (metric && metric.toLowerCase().trim() === "wicket") {
+      filteredBalls = balls.filter(b =>
+        Number(b.is_wicket) === 1 ||
+        Number(b.scrM_IsWicket) === 1 ||
+        Number(b.scrM_IsWicketBall) === 1
+      );
+    }
+
+    console.log("✅ Balls after metric filter:", filteredBalls.length);
+
+    if (!filteredBalls.length) {
+      alert("No balls found for this zone with selected metric.");
+      return;
+    }
+
+    // ✅ Step 3: Collect video URLs (priority)
+    const videoUrls = [];
+
+    filteredBalls.forEach(b => {
+      // pick first available video URL from 1..6
+      for (let i = 1; i <= 6; i++) {
+        const url = b[`scrM_Video${i}URL`] || b[`scrM_Video${i}Url`];
+        if (url && String(url).trim() !== "") {
+          videoUrls.push(String(url).trim());
+          break;
+        }
+      }
+    });
+
+    const uniqVideoUrls = [...new Set(videoUrls.filter(Boolean))];
+
+    // ✅ If URLs exist → open using videos param
+    if (uniqVideoUrls.length > 0) {
+      const params = new URLSearchParams();
+      params.append("videos", uniqVideoUrls.join(","));
+      params.append("zone", zoneKey);
+      params.append("metric", metric || "");
+
+      console.log("🎥 Opening videos:", uniqVideoUrls.length);
+      window.open(`/video_player?${params.toString()}`, "_blank");
+      return;
+    }
+
+    // ✅ Step 4: Fallback to delivery ids (scrM_DelId)
+    const delIds = filteredBalls
+      .map(b => b.del_id || b.scrM_DelId || b.scrM_DelID || b.id || b.ball_id)
+      .filter(Boolean);
+
+    const uniqDelIds = [...new Set(delIds)];
+
+    console.log("✅ Delivery IDs found:", uniqDelIds.length);
+
+    if (!uniqDelIds.length) {
+      alert("No video URLs or delivery ids found for this zone.");
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.append("balls", uniqDelIds.join(","));
+    params.append("zone", zoneKey);
+    params.append("metric", metric || "");
+
+    window.open(`/video_player?${params.toString()}`, "_blank");
+  });
+}
+
             
             
             

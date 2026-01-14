@@ -1611,6 +1611,7 @@ def generate_line_length_report(df, selected_metric=None, is_single_match=False,
 
     # ✅ Collect pitch points for playback (keep scrM_PitchX/Y for pitch pad visualization)
     pitch_cols = [
+         'scrM_DelId',
         'scrM_PitchX', 'scrM_PitchY', 'scrM_BatsmanRuns', 'is_wicket',
         'scrM_IsBoundry', 'scrM_IsSixer',
         'scrM_StrikerBatterSkill', 'scrM_BowlerSkill',
@@ -1622,10 +1623,16 @@ def generate_line_length_report(df, selected_metric=None, is_single_match=False,
 
     pitch_points = df_ll[pitch_cols].to_dict(orient='records')
     # Add Zone field to each pitch point for frontend compatibility
+    # for p in pitch_points:
+    #     line = str(p.get('LineZone', ''))
+    #     length = str(p.get('LengthZone', ''))
+    #     p['Zone'] = f"{length}-{line}"
+
     for p in pitch_points:
-        line = str(p.get('LineZone', ''))
-        length = str(p.get('LengthZone', ''))
-        p['Zone'] = f"{length}-{line}"
+        line = str(p.get('LineZone', '')).strip()
+        length = str(p.get('LengthZone', '')).strip()
+        p['zone_key'] = f"{length}-{line}"
+        p['del_id'] = p.get('scrM_DelId')
 
     # ✅ Final return
     return {
@@ -4130,7 +4137,8 @@ def get_match_innings(match_name):
             tm.tmM_ShortName AS TeamShortName,
             i.Inn_TotalRuns,
             i.Inn_Wickets,
-            i.Inn_Overs
+            i.Inn_Overs,
+            i.Inn_DeliveriesOfLastIncompleteOver
         FROM tblmatchinnings i
         INNER JOIN tblmatchmaster m ON i.Inn_mchMId = m.mchM_Id
         INNER JOIN tblteammaster tm ON i.Inn_tmMIdBatting = tm.tmM_Id
@@ -4140,6 +4148,24 @@ def get_match_innings(match_name):
 
         df = pd.read_sql(query, conn, params=(match_name,))
         conn.close()
+
+        # compute a display-friendly overs string (e.g., 17.2 for 17 overs and 2 deliveries)
+        def make_overs_display(row):
+            try:
+                overs = int(row.get("Inn_Overs") or 0)
+            except Exception:
+                overs = 0
+            try:
+                dels = int(row.get("Inn_DeliveriesOfLastIncompleteOver") if row.get("Inn_DeliveriesOfLastIncompleteOver") is not None else 0)
+            except Exception:
+                dels = 0
+
+            if dels and dels > 0:
+                return f"{overs}.{dels}"
+            return str(overs)
+
+        if not df.empty:
+            df["Inn_OversDisplay"] = df.apply(make_overs_display, axis=1)
 
         return df.to_dict(orient="records")
 
@@ -5588,7 +5614,8 @@ def get_match_format_code_by_tournament(tournament_id):
 
         if not result.empty:
             code = int(result.iloc[0]["trnM_MatchFormat_z"])
-            if code in [26, 27, 28, 29]:
+            # Include known numeric codes: 26=ODI, 28=T20, 167=T10, 27/29=Multi-day/Test
+            if code in [26, 27, 28, 29, 167]:
                 return code
             else:
                 print(f"⚠️ Unknown match format code: {code}")
@@ -5698,8 +5725,17 @@ def create_runs_per_over_chart(innings1_df, innings2_df, team1, team2, phase=Non
     if max_over == 0:
         return go.Figure()  # nothing to plot
 
-    # choose T20 vs ODI phase defaults from max_over
-    if max_over <= 20:
+    # choose phase defaults based on inferred match length
+    # Handle T10 explicitly (max_over <= 10), then T20 (<=20), then ODI/longer
+    if max_over <= 10:
+        # T10: Powerplay 1-2, Middle 3-7, Slog 8-10 (or up to max_over)
+        phase_map = {
+            "overall": (1, max_over),
+            "powerplay": (1, min(2, max_over)),
+            "middle": (3, min(7, max_over)),
+            "slog": (8, max_over),
+        }
+    elif max_over <= 20:
         phase_map = {
             "overall": (1, max_over),
             "powerplay": (1, min(6, max_over)),
@@ -5861,7 +5897,15 @@ def create_run_rate_chart(innings1_df, innings2_df, team1, team2, phase=None, da
         return fig
 
     # choose phase map based on match type inferred by max_over
-    if max_over <= 20:
+    # Handle T10 explicitly (max_over <= 10), then T20 (<=20), then ODI/longer
+    if max_over <= 10:
+        phase_map = {
+            "overall": (1, max_over),
+            "powerplay": (1, min(2, max_over)),
+            "middle": (3, min(7, max_over)),
+            "slog": (8, max_over),
+        }
+    elif max_over <= 20:
         phase_map = {
             "overall": (1, max_over),
             "powerplay": (1, min(6, max_over)),
@@ -8132,7 +8176,13 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
                 legal_balls = int(legal_mask.sum())
                 overs_str = f"{legal_balls // 6}.{legal_balls % 6}"
 
-                runs_conceded = int(pd.to_numeric(gb.get("scrM_DelRuns", 0), errors="coerce").fillna(0).sum())
+                # Total runs on deliveries (includes byes/legbyes/wides/no-balls)
+                total_del_runs = int(pd.to_numeric(gb.get("scrM_DelRuns", 0), errors="coerce").fillna(0).sum())
+                # Subtract runs that are not charged to the bowler (byes, leg-byes, penalty)
+                bye_sum = int(pd.to_numeric(gb.get("scrM_ByeRuns", 0), errors="coerce").fillna(0).sum())
+                legbye_sum = int(pd.to_numeric(gb.get("scrM_LegByeRuns", 0), errors="coerce").fillna(0).sum())
+                penalty_sum = int(pd.to_numeric(gb.get("scrM_PenaltyRuns", 0), errors="coerce").fillna(0).sum())
+                runs_conceded = int(total_del_runs - bye_sum - legbye_sum - penalty_sum)
                 maidens = int((gb.groupby("scrM_OverNo")["scrM_DelRuns"].sum() == 0).sum()) if "scrM_OverNo" in gb.columns else 0
 
                 decisions = gb.get("scrM_DecisionFinal_zName")
@@ -8179,7 +8229,8 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
                     # ✅ Fix: balls vs batter
                     b_balls = int((gb2.get("scrM_IsWideBall", 0).fillna(0) == 0).sum())
 
-                    b_runs = int(pd.to_numeric(gb2.get("scrM_DelRuns", 0), errors="coerce").fillna(0).sum())
+                    # Use batsman runs only for batter-vs-bowler table (exclude wides/byes etc.)
+                    b_runs = int(pd.to_numeric(gb2.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0).sum())
                     decisions2 = gb2.get("scrM_DecisionFinal_zName")
                     if decisions2 is None:
                         decisions2 = pd.Series([""] * len(gb2), index=gb2.index)

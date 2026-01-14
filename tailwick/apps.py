@@ -2683,16 +2683,27 @@ def match_reports():
         return any(x in s for x in ("test", "multiday", "multi", "day", "4day", "5day"))
 
     def _is_limited_overs(fmt):
-        """Return True if fmt indicates a limited overs match (T20/ODI etc)."""
+        """Return True if fmt indicates a limited overs match (T20/ODI/T10 etc)."""
         if fmt is None:
             return False
+
+        # numeric codes from DB
         try:
             if str(fmt).isdigit():
-                return int(fmt) in (26, 28)
+                return int(fmt) in (26, 28, 167)   # ✅ ODI, T20, T10
         except Exception:
             pass
-        s = str(fmt).lower()
-        return any(x in s for x in ("t20", "odi", "one day", "one-day", "limited", "20", "50"))
+
+        # string fallbacks
+        s = str(fmt).strip().lower()
+
+        return any(x in s for x in (
+            "t10", "10",          # ✅ ADD THIS
+            "t20", "20",
+            "odi", "one day", "one-day",
+            "limited"
+        ))
+
     # ----------------------------------------------------------------
 
     # fallback: if the code fetch failed earlier, try string-format lookup
@@ -2971,6 +2982,14 @@ def match_reports():
                         "Middle Overs": (7, 15),
                         "Slog Overs": (16, 20),
                     }
+                elif str(match_format_code).isdigit() and int(match_format_code) == 167:
+                    # ✅ T10
+                    phase_definitions = {
+                        "Overall": (1, 10),
+                        "Powerplay": (1, 2),
+                        "Middle Overs": (3, 7),
+                        "Slog Overs": (8, 10),
+                    }
                 elif str(match_format_code).isdigit() and int(match_format_code) == 26:
                     # ODI
                     phase_definitions = {
@@ -2982,7 +3001,14 @@ def match_reports():
                 else:
                     # fallback for string codes like 't20' or 'odi'
                     s_fmt = str(match_format_code).lower() if match_format_code else ""
-                    if "t20" in s_fmt or "20" in s_fmt:
+                    if "t10" in s_fmt or "10" in s_fmt:
+                        phase_definitions = {
+                            "Overall": (1, 10),
+                            "Powerplay": (1, 2),
+                            "Middle Overs": (3, 7),
+                            "Slog Overs": (8, 10),
+                        }
+                    elif "t20" in s_fmt or "20" in s_fmt:
                         phase_definitions = {
                             "Overall": (1, 20),
                             "Powerplay": (1, 6),
