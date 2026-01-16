@@ -8595,47 +8595,71 @@ from collections import defaultdict
 
 def generate_heatmap_matrix(df, selected_metric=None, is_single_match=False, selected_type="batter"):
     """
-    Line & Length Heatmap Generator — adapted for blank empty boxes (no white fill)
-    Returns {"heatmap_data": ..., "totals": ...} for use in /apps/heatmap_matrix.
-    
-    Args:
-        df: DataFrame with ball-by-ball data
-        selected_metric: Metric to display (Strike Rate, Dot Ball %, etc.)
-        is_single_match: Boolean indicating if single match is selected (True = show counts, False = show percentages)
+    ✅ Python Line & Length Heatmap Generator
+    - Builds heatmap_data (zone wise)
+    - Computes per-ball zone_key (IMPORTANT for click-to-video mapping)
+    - Keeps empty zones blank (display_text=None, metric_value=None)
+
+    Returns:
+        {
+          "heatmap_data": {...},
+          "totals": {...},
+          "df_with_zone": df_ll   ✅ contains zone_key for each ball
+        }
     """
 
+    import pandas as pd
+
     if df is None or df.empty or 'scrM_PitchX' not in df.columns or 'scrM_PitchY' not in df.columns:
-        return {"heatmap_data": {}, "totals": {"balls": 0, "runs": 0, "boundaries": 0, "wickets": 0}}
+        return {
+            "heatmap_data": {},
+            "totals": {"balls": 0, "runs": 0, "boundaries": 0, "wickets": 0},
+            "df_with_zone": pd.DataFrame()
+        }
 
     df_ll = df.copy()
 
-    # Convert to numeric and drop NaNs
+    # ✅ Convert to numeric + drop NaNs
     df_ll['scrM_PitchX'] = pd.to_numeric(df_ll['scrM_PitchX'], errors='coerce')
     df_ll['scrM_PitchY'] = pd.to_numeric(df_ll['scrM_PitchY'], errors='coerce')
     df_ll = df_ll.dropna(subset=['scrM_PitchX', 'scrM_PitchY'])
-    
+
     if df_ll.empty:
-        return {"heatmap_data": {}, "totals": {"balls": 0, "runs": 0, "boundaries": 0, "wickets": 0}}
-    
-    # Define bins
+        return {
+            "heatmap_data": {},
+            "totals": {"balls": 0, "runs": 0, "boundaries": 0, "wickets": 0},
+            "df_with_zone": pd.DataFrame()
+        }
+
+    # ✅ Define bins (MUST MATCH frontend zone display)
     line_bins = [-float('inf'), 50, 70, 80, 84, 88, 95, float('inf')]
-    line_labels = ['Way Outside Off', 'Outside Off', 'Just Outside Off', 'Off Stump',
-                   'Middle Stump', 'Leg Stump', 'Outside Leg']
-    
+    line_labels = [
+        'Way Outside Off', 'Outside Off', 'Just Outside Off',
+        'Off Stump', 'Middle Stump', 'Leg Stump', 'Outside Leg'
+    ]
+
     length_bins = [-float('inf'), 93, 107.5, 128, 150.5, 177, 205, float('inf')]
-    length_labels = ['Fulltoss', 'Yorker', 'Full Length', 'Overpitch', 'Good Length', 'Short of Good', 'Short Pitch']
-    
+    length_labels = [
+        'Fulltoss', 'Yorker', 'Full Length',
+        'Overpitch', 'Good Length', 'Short of Good', 'Short Pitch'
+    ]
+
+    # ✅ Create line/length zones
     df_ll['LineZone'] = pd.cut(df_ll['scrM_PitchX'], bins=line_bins, labels=line_labels, right=False)
     df_ll['LengthZone'] = pd.cut(df_ll['scrM_PitchY'], bins=length_bins, labels=length_labels, right=False)
-    
-    # Create combined zone
-    df_ll['Zone'] = df_ll['LengthZone'].astype(str) + '-' + df_ll['LineZone'].astype(str)
 
-    # Boundary & wicket flags
+    # ✅ Create combined zone_key (THIS IS YOUR PYTHON HEATMAP CELL KEY)
+    df_ll['zone_key'] = df_ll['LengthZone'].astype(str) + '-' + df_ll['LineZone'].astype(str)
+
+    # ✅ Keep old name also (for safety)
+    df_ll['Zone'] = df_ll['zone_key']
+
+    # ✅ Boundary & wicket flags
     df_ll['fours'] = (df_ll.get('scrM_IsBoundry', 0) == 1).astype(int)
     df_ll['sixes'] = (df_ll.get('scrM_IsSixer', 0) == 1).astype(int)
     df_ll['boundaries'] = df_ll['fours'] + df_ll['sixes']
 
+    # ✅ wicket logic
     if 'scrM_IsWicket' in df_ll.columns:
         df_ll['is_wicket'] = df_ll['scrM_IsWicket'].fillna(0).astype(int)
     elif 'scrM_IsWicketBall' in df_ll.columns:
@@ -8647,43 +8671,49 @@ def generate_heatmap_matrix(df, selected_metric=None, is_single_match=False, sel
     else:
         df_ll['is_wicket'] = 0
 
+    # ✅ totals
     total_balls = len(df_ll)
-    total_runs = int(df_ll.get('scrM_BatsmanRuns', pd.Series(dtype=int)).sum() if 'scrM_BatsmanRuns' in df_ll.columns else 0)
+    total_runs = int(df_ll['scrM_BatsmanRuns'].sum()) if 'scrM_BatsmanRuns' in df_ll.columns else 0
     total_boundaries = int(df_ll['boundaries'].sum())
     total_wickets = int(df_ll['is_wicket'].sum())
 
-    # Zone aggregation
-    zone_summary = df_ll.groupby('Zone').agg(
-        balls=('Zone', 'count'),
+    # ✅ Zone aggregation
+    zone_summary = df_ll.groupby('zone_key').agg(
+        balls=('zone_key', 'count'),
         runs=('scrM_BatsmanRuns', 'sum'),
         boundaries=('boundaries', 'sum'),
         wickets=('is_wicket', 'sum')
     ).reset_index()
 
     heatmap_data = {}
-    # Create skeleton with predefined zones
+
+    # ✅ Create skeleton with predefined zones (blank boxes)
     all_zones = [f"{length}-{line}" for length in length_labels for line in line_labels]
     for zone in all_zones:
         heatmap_data[zone] = {
-            'balls': 0, 'runs': 0, 'boundaries': 0, 'wickets': 0,
-            'display_text': None,  # blank box — no text, no color
+            'balls': 0,
+            'runs': 0,
+            'boundaries': 0,
+            'wickets': 0,
+            'display_text': None,   # ✅ blank cell
             'metric_value': None
         }
 
+    # ✅ Fill zones where balls exist
     for _, row in zone_summary.iterrows():
-        zone = row['Zone']
+        zone = row['zone_key']
         balls = int(row['balls'])
         runs = int(row['runs'])
         wickets = int(row['wickets'])
         boundaries = int(row['boundaries'])
-        dots = df_ll[(df_ll['Zone'] == zone) & (df_ll['scrM_BatsmanRuns'] == 0)].shape[0]
 
-        # Skip zones with no balls (keep them blank)
+        # ✅ dots count
+        dots = df_ll[(df_ll['zone_key'] == zone) & (df_ll['scrM_BatsmanRuns'] == 0)].shape[0]
+
         if balls == 0:
             continue
 
-
-        metric_value = 0.0
+        metric_value = None
         display_text = f"{balls} b<br>{runs} r<br>{boundaries} B, {wickets} W"
 
         # ✅ Default (no metric) should color by runs
@@ -8692,59 +8722,71 @@ def generate_heatmap_matrix(df, selected_metric=None, is_single_match=False, sel
         else:
             try:
                 if selected_metric == "Economy":
-                    metric_value = round((runs / (balls / 6)), 2) if balls > 0 else 0
-                    display_text = f"Eco<br>{metric_value}" if balls > 0 else ""
+                    metric_value = round((runs / (balls / 6)), 2) if balls > 0 else None
+                    display_text = f"Eco<br>{metric_value}" if metric_value is not None else None
+
                 elif selected_metric == "SR Bowler":
-                    # Only for Bowlers vs Batters: Bowling Strike Rate = Balls / Wickets (if wickets > 0)
                     if wickets > 0:
                         metric_value = round((balls / wickets), 2)
                         display_text = f"SR<br>{metric_value}"
                     else:
                         metric_value = None
                         display_text = None
+
                 elif selected_metric == "Strike Rate":
                     if selected_type == "bowler":
-                        # ✅ Bowling Strike Rate = Balls per wicket (NO ×100)
-                        metric_value = round((balls / wickets), 2) if wickets > 0 else 0
-                        label = "BSR"
-                        display_text = f"{label}<br>{metric_value}" if wickets > 0 else None
+                        # ✅ Bowling strike rate = balls/wickets
+                        if wickets > 0:
+                            metric_value = round((balls / wickets), 2)
+                            display_text = f"BSR<br>{metric_value}"
+                        else:
+                            metric_value = None
+                            display_text = None
                     else:
-                        # ✅ Batting Strike Rate = Runs per 100 balls
-                        metric_value = round((runs / balls) * 100, 2) if balls > 0 else 0
-                        label = "SR"
-                        display_text = f"{label}<br>{metric_value}"
+                        # ✅ Batting SR = runs/balls * 100
+                        metric_value = round((runs / balls) * 100, 2) if balls > 0 else None
+                        display_text = f"SR<br>{metric_value}" if metric_value is not None else None
+
                 elif selected_metric == "Dot Ball %":
                     if is_single_match:
-                        metric_value = dots
-                        display_text = f"Dots<br>{int(dots)}"
+                        metric_value = int(dots)
+                        display_text = f"Dots<br>{metric_value}"
                     else:
-                        metric_value = round((dots / balls) * 100, 2) if balls > 0 else 0
-                        display_text = f"Dot%<br>{metric_value}"
+                        metric_value = round((dots / balls) * 100, 2) if balls > 0 else None
+                        display_text = f"Dot%<br>{metric_value}" if metric_value is not None else None
+
                 elif selected_metric == "Boundary %":
                     if is_single_match:
-                        metric_value = boundaries
-                        display_text = f"Bound<br>{int(boundaries)}"
+                        metric_value = int(boundaries)
+                        display_text = f"Bound<br>{metric_value}"
                     else:
-                        metric_value = round((boundaries / balls) * 100, 2) if balls > 0 else 0
-                        display_text = f"Bound%<br>{metric_value}"
+                        metric_value = round((boundaries / balls) * 100, 2) if balls > 0 else None
+                        display_text = f"Bound%<br>{metric_value}" if metric_value is not None else None
+
                 elif selected_metric == "Average":
-                    metric_value = round((runs / wickets), 2) if wickets > 0 else 0
-                    display_text = f"Avg<br>{metric_value}"
+                    metric_value = round((runs / wickets), 2) if wickets > 0 else None
+                    display_text = f"Avg<br>{metric_value}" if metric_value is not None else None
+
                 elif selected_metric == "Balls Per Dismissal":
-                    metric_value = round((balls / wickets), 2) if wickets > 0 else 0
-                    display_text = f"BPD<br>{metric_value}"
+                    metric_value = round((balls / wickets), 2) if wickets > 0 else None
+                    display_text = f"BPD<br>{metric_value}" if metric_value is not None else None
+
                 elif selected_metric == "Ball %":
                     if is_single_match:
-                        metric_value = balls
-                        display_text = f"Balls<br>{int(balls)}"
+                        metric_value = int(balls)
+                        display_text = f"Balls<br>{metric_value}"
                     else:
-                        metric_value = round((balls / total_balls) * 100, 2) if total_balls > 0 else 0
-                        display_text = f"Ball%<br>{metric_value}"
+                        metric_value = round((balls / total_balls) * 100, 2) if total_balls > 0 else None
+                        display_text = f"Ball%<br>{metric_value}" if metric_value is not None else None
+
                 elif selected_metric == "Wicket":
-                    metric_value = wickets
+                    metric_value = int(wickets)
                     display_text = f"<b>{wickets}</b><br>Wkt" if wickets > 0 else None
+
             except Exception as e:
-                print(f"⚠️ Metric calc failed for {zone}: {e}")
+                print(f"⚠️ Metric calc failed for zone={zone}: {e}")
+                metric_value = None
+                display_text = None
 
         heatmap_data[zone] = {
             'balls': balls,
@@ -8755,7 +8797,6 @@ def generate_heatmap_matrix(df, selected_metric=None, is_single_match=False, sel
             'metric_value': metric_value
         }
 
-
     totals = {
         'balls': total_balls,
         'runs': total_runs,
@@ -8763,7 +8804,12 @@ def generate_heatmap_matrix(df, selected_metric=None, is_single_match=False, sel
         'wickets': total_wickets
     }
 
-    return {"heatmap_data": heatmap_data, "totals": totals}
+    return {
+        "heatmap_data": heatmap_data,
+        "totals": totals,
+        "df_with_zone": df_ll   # ✅ CRITICAL FOR CLICK-TO-VIDEO
+    }
+
 
 
 def get_team_inning_distribution(tournament_id, team_name, matches):

@@ -428,15 +428,15 @@ def advanced_filters():
                 conn.close()
                 print(f"Data rows {len(df)} ")
                 # --- FILTER df BY SELECTED TEAM (minimal change) ---
-                # if selected_team and df is not None and not df.empty:
-                #     try:
-                #         if selected_type == "batter":
-                #             df = df[df['scrM_tmMIdBattingName'] == selected_team]
-                #         else:
-                #             df = df[df['scrM_tmMIdBowlingName'] == selected_team]
-                #         print(f"Filtered df rows for team {selected_team}: {len(df)}")
-                #     except Exception as e:
-                #         print("Error filtering df by selected_team:", e)
+                if selected_team and df is not None and not df.empty:
+                    try:
+                        if selected_type == "batter":
+                            df = df[df['scrM_tmMIdBattingName'] == selected_team]
+                        else:
+                            df = df[df['scrM_tmMIdBowlingName'] == selected_team]
+                        print(f"Filtered df rows for team {selected_team}: {len(df)}")
+                    except Exception as e:
+                        print("Error filtering df by selected_team:", e)
 
                 # --- ✅ Apply PHASE filter to df (for Player vs Player consistency) ---
                 if df is not None and not df.empty:
@@ -870,11 +870,10 @@ def heatmap_matrix():
     Accepts advanced filters: matches, metric, team, batters, bowlers, inning,
     session, day, from_over, to_over, type (batter/bowler), phase, ball_phase.
 
-    Fixed version:
-    ✅ Properly expands 'All' matches.
-    ✅ Applies Ball Phase filter safely in Python (per-player).
-    ✅ Works for multiday + limited overs formats.
-    ✅ Prevents empty heatmaps.
+    ✅ Updated Version:
+    - Ensures pitch_points includes zone_key for every ball
+    - Fixes selected_type logic (JSON request)
+    - Keeps your All-match + skill + ball-phase logic intact
     """
     import re
     import pandas as pd
@@ -885,7 +884,7 @@ def heatmap_matrix():
         metric = (data.get("metric") or "").strip()
         matches = data.get("matches", []) or []
         team = data.get("team")
-        view_type = (data.get("type") or "batter").strip()
+        view_type = (data.get("type") or "batter").strip()  # ✅ batter/bowler
 
         def sanitize_field(val):
             try:
@@ -931,6 +930,33 @@ def heatmap_matrix():
         batters = clean_list(ensure_list(batters))
         bowlers = clean_list(ensure_list(bowlers))
 
+        # Accept explicit quick-skill tokens passed separately (from client-side)
+        explicit_bowler_skill = (data.get('bowler_skill') or data.get('bowlerSkill') or '')
+        explicit_batter_skill = (data.get('batter_skill') or data.get('batterSkill') or '')
+
+        if explicit_bowler_skill:
+            explicit_bowler_skill = str(explicit_bowler_skill).strip()
+        if explicit_batter_skill:
+            explicit_batter_skill = str(explicit_batter_skill).strip()
+
+        # If client sent tokens like 'Pace'/'Spin' inside bowlers list
+        if bowlers:
+            lower_vals = [str(x).strip().lower() for x in bowlers]
+            for token in ['pace', 'spin']:
+                if token in lower_vals:
+                    explicit_bowler_skill = token
+                    bowlers = []  # clear literal bowlers
+                    break
+
+        # If client sent tokens like 'RHB'/'LHB' inside batters list
+        if batters:
+            lower_vals_b = [str(x).strip().lower() for x in batters]
+            for token in ['rhb', 'lhb']:
+                if token in lower_vals_b:
+                    explicit_batter_skill = token.upper()
+                    batters = []
+                    break
+
         # Detect “All” or “All (Skill)”
         def detect_all_and_skill(lst):
             has_all = False
@@ -946,6 +972,12 @@ def heatmap_matrix():
         matches_has_all, _ = detect_all_and_skill(matches)
         batters_has_all, batters_skill = detect_all_and_skill(batters)
         bowlers_has_all, bowlers_skill = detect_all_and_skill(bowlers)
+
+        # Prefer explicit skill if provided
+        if explicit_bowler_skill:
+            bowlers_skill = str(explicit_bowler_skill)
+        if explicit_batter_skill:
+            batters_skill = str(explicit_batter_skill)
 
         # Expand matches if “All”
         if matches_has_all or not matches:
@@ -965,6 +997,7 @@ def heatmap_matrix():
 
         match_filter_applied = bool(matches)
 
+        # If batters/bowlers had All -> clear them
         if batters_has_all:
             batters = []
         if bowlers_has_all:
@@ -988,6 +1021,13 @@ def heatmap_matrix():
         )
         conn.close()
 
+        try:
+            df_len = len(df) if df is not None else 0
+        except Exception:
+            df_len = 0
+
+        print(f"[DEBUG] heatmap_matrix after fetch: matches={matches}, batters={batters}, bowlers={bowlers}, batters_skill={batters_skill}, bowlers_skill={bowlers_skill}, df_rows={df_len}")
+
         if df is None or df.empty:
             return jsonify({"heatmap_data": {}, "totals": {}, "pitch_points": []})
 
@@ -1007,22 +1047,25 @@ def heatmap_matrix():
             return None
 
         bp_token = normalize_ball_phase(ball_phase)
+
         if bp_token and not df.empty:
             try:
-                # Ensure numeric overs & deliveries
                 if "scrM_OverNo" in df.columns and "scrM_DelNo" in df.columns:
                     df["scrM_OverNo"] = pd.to_numeric(df["scrM_OverNo"], errors="coerce").fillna(0).astype(int)
                     df["scrM_DelNo"] = pd.to_numeric(df["scrM_DelNo"], errors="coerce").fillna(0).astype(int)
 
                 key_col = "scrM_PlayMIdStrikerName" if view_type == "batter" else "scrM_PlayMIdBowlerName"
+
                 if key_col in df.columns:
                     phase_dfs = []
                     for name, sub in df.groupby(key_col, group_keys=False):
                         sub = sub.sort_values(["scrM_OverNo", "scrM_DelNo"]).reset_index(drop=True)
                         total = len(sub)
+
                         if total <= 10:
                             phase_dfs.append(sub)
                             continue
+
                         if bp_token == "first":
                             phase_dfs.append(sub.head(10))
                         elif bp_token == "last":
@@ -1034,19 +1077,22 @@ def heatmap_matrix():
                                 mid_start = max(1, total // 2 - 2)
                                 mid_end = min(total, total // 2 + 2)
                                 phase_dfs.append(sub.iloc[mid_start:mid_end])
+
                     if phase_dfs:
                         df = pd.concat(phase_dfs, ignore_index=True)
                         print(f"✅ Ball Phase '{bp_token}' applied; rows={len(df)}")
+
             except Exception as e:
                 print("⚠️ Ball Phase filtering failed:", e)
 
         # ---------------- Skill Filters ----------------
         if batters_skill:
-            bs = batters_skill.strip().upper()
+            bs = str(batters_skill).strip().upper()
             cols = [c for c in df.columns if "batter" in c.lower() and "skill" in c.lower()]
             for fallback in ["scrM_StrikerBatterSkill", "scrM_BatsmanSkill", "scrM_PlayMIdStrikerSkill"]:
                 if fallback in df.columns and fallback not in cols:
                     cols.insert(0, fallback)
+
             for col in cols:
                 try:
                     df = df[df[col].astype(str).str.upper().str.contains(bs, na=False)]
@@ -1055,17 +1101,41 @@ def heatmap_matrix():
                     continue
 
         if bowlers_skill:
-            bws = bowlers_skill.strip().upper()
+            bws = str(bowlers_skill).strip().upper()
             cols = [c for c in df.columns if "bowler" in c.lower() and "skill" in c.lower()]
             for fallback in ["scrM_BowlerSkill", "scrM_PlayMIdBowlerSkill"]:
                 if fallback in df.columns and fallback not in cols:
                     cols.insert(0, fallback)
-            for col in cols:
+
+            # Special handling for high-level tokens 'PACE' / 'SPIN'
+            if bws in ("PACE", "SPIN"):
+                pace_keywords = ['FAST','FAST-MEDIUM','MEDIUM FAST','RAF','RAMF','LAF','LAMF','MF','F']
+                spin_keywords = ['SPIN','OFF','LEG','LEFT-ARM','RIGHT-ARM','OFFBREAK','LEGBREAK','SLOW','CHINAMAN']
+                kws = pace_keywords if bws == 'PACE' else spin_keywords
+                # build OR regex, match any keyword within the skill string
                 try:
-                    df = df[df[col].astype(str).str.upper().str.contains(bws, na=False)]
-                    break
+                    pattern = r"(?:" + r"|".join([re.escape(k.upper()) for k in kws]) + r")"
+                    for col in cols:
+                        try:
+                            df = df[df[col].astype(str).str.upper().str.contains(pattern, na=False)]
+                            break
+                        except Exception:
+                            continue
                 except Exception:
-                    continue
+                    # fallback to naive contains
+                    for col in cols:
+                        try:
+                            df = df[df[col].astype(str).str.upper().str.contains(bws, na=False)]
+                            break
+                        except Exception:
+                            continue
+            else:
+                for col in cols:
+                    try:
+                        df = df[df[col].astype(str).str.upper().str.contains(bws, na=False)]
+                        break
+                    except Exception:
+                        continue
 
         # ---------------- Team Filter ----------------
         if team:
@@ -1078,10 +1148,21 @@ def heatmap_matrix():
             return jsonify({"heatmap_data": {}, "totals": {}, "pitch_points": []})
 
         # ---------------- Generate Heatmap ----------------
-        # ✅ Check if single match is selected
         is_single_match = len(matches) == 1 if matches else False
-        selected_type = request.form.get("type", "batter")
-        hm = generate_heatmap_matrix( df, selected_metric=metric, is_single_match=is_single_match, selected_type=selected_type ) if callable(generate_heatmap_matrix) else {"heatmap_data": {}, "totals": {}}
+
+        # ✅ FIXED: selected_type must come from JSON view_type (NOT request.form)
+        selected_type = view_type
+
+        hm = (
+            generate_heatmap_matrix(df, selected_metric=metric, is_single_match=is_single_match, selected_type=selected_type)
+            if callable(generate_heatmap_matrix)
+            else {"heatmap_data": {}, "totals": {}, "df_with_zone": df}
+        )
+
+        # ✅ IMPORTANT: Use df_with_zone (contains zone_key per ball)
+        df_zoned = hm.get("df_with_zone")
+        if df_zoned is None or df_zoned.empty:
+            df_zoned = df.copy()
 
         # ---------------- Prepare Pitch Points ----------------
         keep_cols = [
@@ -1090,29 +1171,32 @@ def heatmap_matrix():
             "scrM_VideoFile", "scrM_Video1URL", "scrM_DelId", "scrM_MatchName",
             "scrM_OverNo", "scrM_DelNo", "scrM_InningNo", "scrM_BallID",
             "scrM_StrikerBatterSkill", "scrM_BowlerSkill",
-            "scrM_PlayMIdStrikerName", "scrM_PlayMIdBowlerName"
+            "scrM_PlayMIdStrikerName", "scrM_PlayMIdBowlerName",
+            "zone_key", "Zone"  # ✅ keep zone columns also
         ]
 
         pitch_points = []
         isna = pd.isna
 
-        for _, row in df.iterrows():
+        for _, row in df_zoned.iterrows():
             point = {}
+
+            # ✅ copy columns safely
             for c in keep_cols:
-                if c in df.columns:
+                if c in df_zoned.columns:
                     val = row.get(c, None)
                     try:
                         if hasattr(val, "item"):
                             val = val.item()
                     except Exception:
                         pass
-                    if not isna(val):
+                    if val is not None and not isna(val):
                         point[c] = val
 
-            # Determine ball ID
+            # ✅ Determine ball ID
             ball_id = None
             for cand in ("scrM_BallID", "scrM_BallId", "scrM_DelId", "scrM_DelID", "id", "ball_id"):
-                if cand in df.columns:
+                if cand in df_zoned.columns:
                     val = row.get(cand)
                     if val is None or (isinstance(val, float) and pd.isna(val)):
                         continue
@@ -1120,10 +1204,20 @@ def heatmap_matrix():
                     if s:
                         ball_id = s
                         break
+
             if not ball_id:
                 continue
 
+            # ✅ standardize ball id key
             point["scrM_BallID"] = ball_id
+
+            # ✅ Ensure python heatmap click mapping exists
+            # If zone_key is not present, fallback to Zone
+            if "zone_key" not in point or not point.get("zone_key"):
+                z = row.get("Zone")
+                if z is not None and not (isinstance(z, float) and pd.isna(z)):
+                    point["zone_key"] = str(z).strip()
+
             pitch_points.append(point)
 
         # ---------------- Return JSON ----------------
@@ -1137,6 +1231,7 @@ def heatmap_matrix():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
 
 
 
@@ -2727,6 +2822,22 @@ def match_reports():
     if selected_match:
         match_header = get_match_header(selected_match)
         match_innings = get_match_innings(selected_match)
+
+        # ✅ FIX: ensure overs display shows balls too (3.4 instead of 4.0)
+        for inn in match_innings:
+            try:
+                overs = int(float(inn.get("Inn_Overs") or 0))
+            except Exception:
+                overs = 0
+
+            try:
+                balls = int(float(inn.get("Inn_DeliveriesOfLastIncompleteOver") or 0))
+            except Exception:
+                balls = 0
+
+            # if balls exist, show overs.balls else only overs
+            inn["Inn_OversDisplay"] = f"{overs}.{balls}" if balls > 0 else str(overs)
+
 
         ball_by_ball_df = get_ball_by_ball_data(selected_match)
 

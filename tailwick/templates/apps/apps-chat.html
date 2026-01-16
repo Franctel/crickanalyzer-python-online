@@ -671,23 +671,29 @@ function downloadPlayerPDF(playerName) {
                                 if (!select) return [];
                                 // get selected values (Choices.js or native)
                                 const selected = Array.from(select.querySelectorAll('option:checked')).map(o => String(o.value).trim()).filter(Boolean);
-            
+
                                 // If the only selection is the literal 'All' or an 'All' exists among selections -> expand to all real option values (excluding 'All')
                                 const hasAllToken = selected.some(s => s.toLowerCase() === 'all');
                                 if (hasAllToken) {
-                                // expand to every option value except the 'All' token itself
-                                const allVals = Array.from(select.options).map(o => String(o.value).trim()).filter(v => v && v.toLowerCase() !== 'all');
-                                return allVals;
+                                    // expand to every option value except the 'All' token itself
+                                    const allVals = Array.from(select.options).map(o => String(o.value).trim()).filter(v => v && v.toLowerCase() !== 'all');
+                                    return allVals;
                                 }
                                 // remove any stray 'All' tokens or 'undefined' strings that might sneak in
                                 return selected.filter(v => v && v.toLowerCase() !== 'all' && v.toLowerCase() !== 'undefined');
                             }
-            
+
                             const matchesRaw = readMultiSelect('matches');
                             // guard: if no explicit matches selected, return empty to indicate none selected
                             const matches = matchesRaw && matchesRaw.length ? matchesRaw : [];
-            
-                            return {
+
+                            // read quick-skill buttons (batter / bowler) so server can honour them
+                            const activeBatterBtn = document.querySelector('.skill-btn-batter.active-skill-btn');
+                            const activeBowlerBtn = document.querySelector('.skill-btn-bowler.active-skill-btn');
+                            const batterSkill = activeBatterBtn ? (activeBatterBtn.dataset.batterSkill || activeBatterBtn.getAttribute('data-batter-skill')) : null;
+                            const bowlerSkill = activeBowlerBtn ? (activeBowlerBtn.dataset.bowlerSkill || activeBowlerBtn.getAttribute('data-bowler-skill')) : null;
+
+                            const payload = {
                                 metric: metricEl ? metricEl.value : '',
                                 matches: matches,
                                 team: document.querySelector('select[name="team"]')?.value || null,
@@ -701,7 +707,34 @@ function downloadPlayerPDF(playerName) {
                                 phase: document.querySelector('select[name="phase"]')?.value || null,
                                 ball_phase: document.querySelector('select[name="ball_phase"]')?.value || null
                             };
+
+                            // If quick-skill buttons are used, prefer them (map to tokens server can understand)
+                            try {
+                                if (batterSkill && String(batterSkill).toLowerCase() !== 'all') {
+                                    const s = String(batterSkill).toUpperCase();
+                                    if (s === 'RHB') {
+                                        payload.batters = ['All (RHB)'];
+                                        payload.batter_skill = 'RHB';
+                                    }
+                                    else if (s === 'LHB') {
+                                        payload.batters = ['All (LHB)'];
+                                        payload.batter_skill = 'LHB';
+                                    }
+                                }
+
+                                if (bowlerSkill && String(bowlerSkill).toLowerCase() !== 'all') {
+                                    // prefer an explicit flag, but also include the skill token in bowlers array
+                                    const b = String(bowlerSkill);
+                                    payload.bowler_skill = b;
+                                    // Include as token so older backend code may still match
+                                    payload.bowlers = [b];
+                                }
+                            } catch (e) {
+                                console.warn('collectFilters: quick-skill mapping failed', e);
                             }
+
+                            return payload;
+                        }
                       
                         const lineLabels = ['Way Outside Off','Outside Off','Just Outside Off','Off Stump','Middle Stump','Leg Stump','Outside Leg'];
                         const lengthLabels = ['Fulltoss', 'Yorker', 'Full Length', 'Overpitch', 'Good Length', 'Short of Good', 'Short Pitch'];
@@ -710,7 +743,7 @@ function downloadPlayerPDF(playerName) {
                             heatmapContainer.innerHTML = '';
             
                             const table = document.createElement('table');
-                            table.id = 'heatmap-matrix';  // ✅ ADD THIS LINE
+                            table.id = 'heatmap-table';  // server heatmap table id (distinct from container)
                             table.className = 'w-full text-xs border-collapse';
                             table.style.tableLayout = 'fixed';
                             table.style.width = '100%';
@@ -903,7 +936,7 @@ function downloadPlayerPDF(playerName) {
                                 heatmapInfo.innerHTML = '';
                             }
             
-                            // ✅ Attach click handlers at the very end
+                            // ✅ Attach click handlers at the very end (bind to server table id)
                             attachHeatmapClickHandlers(document.getElementById('metric')?.value || '');
                         }
 
@@ -1028,102 +1061,279 @@ function downloadPlayerPDF(playerName) {
                             // }
 
                             function attachHeatmapClickHandlers(selectedMetric) {
-  const table = document.querySelector('#heatmap-matrix');
-  if (!table) return;
 
-  // ✅ prevent multiple bindings
-  if (table.dataset.clickBound === "1") return;
-  table.dataset.clickBound = "1";
+                            // ✅ target the python heatmap table
+                            // IMPORTANT: update this selector to whatever your table id is
+                            // you said python table uses td[data-zone] so we bind on the table wrapper
+                            const table =
+                                document.querySelector('#heatmap-table') ||
+                                document.querySelector('#heatmap-matrix') ||
+                                document.querySelector('#heatmap-table-container') ||
+                                document.querySelector('table'); // last fallback
 
-  table.addEventListener('click', (e) => {
-    const cell = e.target.closest('td[data-zone]');
-    if (!cell) return;
+                            if (!table) {
+                                console.warn("❌ Heatmap table not found for click binding");
+                                return;
+                            }
 
-    const zoneKey = cell.dataset.zone;   // example: "Good Length-Outside Off"
-    const metric = selectedMetric || (document.getElementById('metric')?.value || '');
+                            // ✅ prevent multiple bindings
+                            if (table.dataset.clickBound === "1") {
+                                console.log("⚠️ Heatmap click already bound, skipping");
+                                return;
+                            }
+                            table.dataset.clickBound = "1";
 
-    console.log("✅ Clicked zone:", zoneKey);
+                            console.log("✅ Python Heatmap click handler attached");
 
-    // ✅ Step 1: Pick balls using zone_key OR Zone (support both)
-    let balls = (window.currentPitchMapPoints || []).filter(b => {
-      const z = b.zone_key || b.Zone || '';
-      return String(z).trim() === String(zoneKey).trim();
-    });
+                            // --------------------------
+                            // Helpers
+                            // --------------------------
 
-    console.log("✅ Balls found in zone:", balls.length);
+                            // ✅ normalize metric label
+                            function normalizeMetric(metric) {
+                                const m = String(metric || "").trim().toLowerCase();
 
-    if (!balls.length) {
-      alert("No balls found for this zone.");
-      return;
-    }
+                                if (!m) return "";
 
-    // ✅ Step 2: Metric filter (only Wicket shown here)
-    let filteredBalls = balls;
-    if (metric && metric.toLowerCase().trim() === "wicket") {
-      filteredBalls = balls.filter(b =>
-        Number(b.is_wicket) === 1 ||
-        Number(b.scrM_IsWicket) === 1 ||
-        Number(b.scrM_IsWicketBall) === 1
-      );
-    }
+                                // map variations
+                                if (m === "wickets" || m === "wkts") return "wicket";
+                                if (m === "dot balls" || m === "dots") return "dot";
+                                if (m === "fours" || m === "4") return "four";
+                                if (m === "sixes" || m === "6") return "six";
+                                if (m === "runs scored" || m === "total runs") return "runs";
 
-    console.log("✅ Balls after metric filter:", filteredBalls.length);
+                                return m;
+                            }
 
-    if (!filteredBalls.length) {
-      alert("No balls found for this zone with selected metric.");
-      return;
-    }
+                            // ✅ line zone from x
+                            function getLineZone(x) {
+                                // Update these boundaries ONLY if your python heatmap mapping differs
+                                // (these are typical cricket pitch line buckets)
+                                if (x < 1.5) return "Wide Outside Off";
+                                if (x < 3.0) return "Outside Off";
+                                if (x < 4.5) return "Off Stump";
+                                if (x < 6.0) return "Middle Stump";
+                                if (x < 7.5) return "Leg Stump";
+                                return "Down Leg";
+                            }
 
-    // ✅ Step 3: Collect video URLs (priority)
-    const videoUrls = [];
+                            // ✅ length zone from y
+                            function getLengthZone(y) {
+                                // Update these boundaries ONLY if your python heatmap mapping differs
+                                if (y < 1.0) return "Full Toss";
+                                if (y < 2.0) return "Yorker";
+                                if (y < 3.2) return "Full Length";
+                                if (y < 4.4) return "Over Pitch";
+                                if (y < 5.6) return "Good Length";
+                                if (y < 6.8) return "Short of GL";
+                                return "Short Pitch";
+                            }
 
-    filteredBalls.forEach(b => {
-      // pick first available video URL from 1..6
-      for (let i = 1; i <= 6; i++) {
-        const url = b[`scrM_Video${i}URL`] || b[`scrM_Video${i}Url`];
-        if (url && String(url).trim() !== "") {
-          videoUrls.push(String(url).trim());
-          break;
-        }
-      }
-    });
+                            // ✅ extract best video url (from 1..6)
+                            function pickVideoUrl(ball) {
+                                for (let i = 1; i <= 6; i++) {
+                                const url = ball?.[`scrM_Video${i}URL`] || ball?.[`scrM_Video${i}Url`];
+                                if (url && String(url).trim() !== "") {
+                                    return String(url).trim();
+                                }
+                                }
 
-    const uniqVideoUrls = [...new Set(videoUrls.filter(Boolean))];
+                                // some DBs use scrM_VideoFile
+                                if (ball?.scrM_VideoFile && String(ball.scrM_VideoFile).trim() !== "") {
+                                return String(ball.scrM_VideoFile).trim();
+                                }
 
-    // ✅ If URLs exist → open using videos param
-    if (uniqVideoUrls.length > 0) {
-      const params = new URLSearchParams();
-      params.append("videos", uniqVideoUrls.join(","));
-      params.append("zone", zoneKey);
-      params.append("metric", metric || "");
+                                return null;
+                            }
 
-      console.log("🎥 Opening videos:", uniqVideoUrls.length);
-      window.open(`/video_player?${params.toString()}`, "_blank");
-      return;
-    }
+                            // ✅ extract delivery/ball id (fallback)
+                            function pickBallId(ball) {
+                                return (
+                                ball?.scrM_BallID ||
+                                ball?.scrM_BallId ||
+                                ball?.scrM_DelId ||
+                                ball?.scrM_DelID ||
+                                ball?.del_id ||
+                                ball?.ball_id ||
+                                ball?.id ||
+                                null
+                                );
+                            }
 
-    // ✅ Step 4: Fallback to delivery ids (scrM_DelId)
-    const delIds = filteredBalls
-      .map(b => b.del_id || b.scrM_DelId || b.scrM_DelID || b.id || b.ball_id)
-      .filter(Boolean);
+                            // ✅ map a ball into a zoneKey if zone_key missing
+                            function computeZoneKeyFromCoords(ball) {
+                                const xRaw =
+                                ball?.scrM_PitchX ??
+                                ball?.scrM_PitchXPos ??
+                                ball?.scrM_BatPitchX ??
+                                ball?.scrM_BatPitchXPos;
 
-    const uniqDelIds = [...new Set(delIds)];
+                                const yRaw =
+                                ball?.scrM_PitchY ??
+                                ball?.scrM_PitchYPos ??
+                                ball?.scrM_BatPitchY ??
+                                ball?.scrM_BatPitchYPos;
 
-    console.log("✅ Delivery IDs found:", uniqDelIds.length);
+                                const x = Number(xRaw);
+                                const y = Number(yRaw);
 
-    if (!uniqDelIds.length) {
-      alert("No video URLs or delivery ids found for this zone.");
-      return;
-    }
+                                if (!isFinite(x) || !isFinite(y)) return null;
 
-    const params = new URLSearchParams();
-    params.append("balls", uniqDelIds.join(","));
-    params.append("zone", zoneKey);
-    params.append("metric", metric || "");
+                                const line = getLineZone(x);
+                                const length = getLengthZone(y);
 
-    window.open(`/video_player?${params.toString()}`, "_blank");
-  });
-}
+                                return `${length}-${line}`;
+                            }
+
+                            // ✅ metric filter on balls
+                            function applyMetricFilter(balls, metricNorm) {
+                                if (!metricNorm) return balls;
+
+                                if (metricNorm === "wicket") {
+                                return balls.filter(b =>
+                                    Number(b?.is_wicket) === 1 ||
+                                    Number(b?.scrM_IsWicket) === 1 ||
+                                    Number(b?.scrM_IsWicketBall) === 1
+                                );
+                                }
+
+                                if (metricNorm === "four") {
+                                return balls.filter(b =>
+                                    Number(b?.scrM_IsBoundry) === 1 ||
+                                    Number(b?.is_four) === 1 ||
+                                    Number(b?.is_boundary) === 1 ||
+                                    Number(b?.scrM_BatsmanRuns) === 4
+                                );
+                                }
+
+                                if (metricNorm === "six") {
+                                return balls.filter(b =>
+                                    Number(b?.scrM_IsSixer) === 1 ||
+                                    Number(b?.is_six) === 1 ||
+                                    Number(b?.scrM_BatsmanRuns) === 6
+                                );
+                                }
+
+                                if (metricNorm === "dot") {
+                                return balls.filter(b => Number(b?.scrM_BatsmanRuns || 0) === 0);
+                                }
+
+                                // runs = no filtering (all balls already)
+                                return balls;
+                            }
+
+                            // --------------------------
+                            // Main click binding
+                            // --------------------------
+                            table.addEventListener("click", (e) => {
+                                const cell = e.target.closest("td[data-zone]");
+                                if (!cell) return;
+
+                                const zoneKey = String(cell.dataset.zone || "").trim();
+                                if (!zoneKey) return;
+
+                                const metric =
+                                selectedMetric ||
+                                (document.getElementById("metric")?.value || "");
+
+                                const metricNorm = normalizeMetric(metric);
+
+                                console.log("✅ Clicked Python Heatmap zone:", zoneKey, "| Metric:", metricNorm);
+
+                                // ✅ Step 1: Pick balls using true zone_key OR compute it from coords
+                                const points = window.currentPitchMapPoints || [];
+
+                                let balls = points.filter(b => {
+                                const z = String(b?.zone_key || b?.Zone || b?.ZoneName || "").trim();
+                                if (z && z === zoneKey) return true;
+
+                                const computed = computeZoneKeyFromCoords(b);
+                                return computed === zoneKey;
+                                });
+
+                                console.log("✅ Balls found in zone:", balls.length);
+
+                                if (!balls.length) {
+                                alert("No balls found for this zone.");
+                                return;
+                                }
+
+                                // ✅ Step 2: Apply metric filter (if selected)
+                                const filteredBalls = applyMetricFilter(balls, metricNorm);
+
+                                console.log("✅ Balls after metric filter:", filteredBalls.length);
+
+                                if (!filteredBalls.length) {
+                                alert("No balls found for this zone with selected metric.");
+                                return;
+                                }
+
+                                // ✅ Step 3: Collect video URLs
+                                const videoUrls = [];
+                                filteredBalls.forEach(b => {
+                                const url = pickVideoUrl(b);
+                                if (url) videoUrls.push(url);
+                                });
+
+                                const uniqVideoUrls = [...new Set(videoUrls.filter(Boolean))];
+
+                                // ✅ Open via video URLs (best)
+                                if (uniqVideoUrls.length > 0) {
+                                console.log("🎥 Opening videos (URLs):", uniqVideoUrls.length);
+
+                                // ✅ If you have this helper in your project, use it (recommended)
+                                if (typeof openVideoPlayerViaPost === "function") {
+                                    openVideoPlayerViaPost(uniqVideoUrls, {
+                                    zone: zoneKey,
+                                    metric: metricNorm
+                                    });
+                                    return;
+                                }
+
+                                // fallback old GET method
+                                const params = new URLSearchParams();
+                                params.append("videos", uniqVideoUrls.join(","));
+                                params.append("zone", zoneKey);
+                                params.append("metric", metricNorm || "");
+
+                                window.open(`/video_player?${params.toString()}`, "_blank");
+                                return;
+                                }
+
+                                // ✅ Step 4: Fallback to delivery IDs
+                                const delIds = filteredBalls
+                                .map(b => pickBallId(b))
+                                .filter(Boolean);
+
+                                const uniqDelIds = [...new Set(delIds)];
+
+                                console.log("✅ Delivery IDs found:", uniqDelIds.length);
+
+                                if (!uniqDelIds.length) {
+                                alert("No video URLs or delivery ids found for this zone.");
+                                return;
+                                }
+
+                                // ✅ Open via POST helper if available
+                                if (typeof openVideoPlayerViaPost === "function") {
+                                openVideoPlayerViaPost([], {
+                                    balls: uniqDelIds,
+                                    zone: zoneKey,
+                                    metric: metricNorm
+                                });
+                                return;
+                                }
+
+                                // fallback old GET method
+                                const params = new URLSearchParams();
+                                params.append("balls", uniqDelIds.join(","));
+                                params.append("zone", zoneKey);
+                                params.append("metric", metricNorm || "");
+
+                                window.open(`/video_player?${params.toString()}`, "_blank");
+                            });
+                            }
+
 
             
             
@@ -1221,6 +1431,11 @@ function downloadPlayerPDF(playerName) {
                             }
             
                             try {
+                                // Immediately show a lightweight loading state and hide previous heatmap to avoid flash
+                                heatmapContainer.dataset.loading = '1';
+                                heatmapContainer.style.opacity = '0.45';
+                                heatmapContainer.innerHTML = '<div class="text-xs text-slate-400">Loading heatmap…</div>';
+
                                 const res = await fetch("/apps/heatmap_matrix", {
                                     method: "POST",
                                     headers: { "Content-Type": "application/json" },
@@ -1230,15 +1445,19 @@ function downloadPlayerPDF(playerName) {
                                 const data = await res.json();
             
                                 if (!data || !data.heatmap_data || Object.keys(data.heatmap_data).length === 0) {
-                                    heatmapContainer.innerHTML =
-                                        '<div class="text-xs text-slate-500">No heatmap data found for the selected filters.</div>';
+                                    heatmapContainer.innerHTML = '<div class="text-xs text-slate-500">No heatmap data found for the selected filters.</div>';
                                     heatmapInfo.innerHTML = "";
+                                    heatmapContainer.dataset.loading = '0';
+                                    heatmapContainer.style.opacity = '1';
                                     return;
                                 }
             
                                 // ✅ Store global pitch points for video linking
                                 window.currentPitchMapPoints = data.pitch_points || [];
+                                // render and then restore visibility
                                 renderHeatmapTable(data.heatmap_data, data.totals || {});
+                                heatmapContainer.dataset.loading = '0';
+                                heatmapContainer.style.opacity = '1';
                             } catch (e) {
                                 console.error("Failed to fetch heatmap_matrix", e);
                                 heatmapContainer.innerHTML =
@@ -1246,6 +1465,8 @@ function downloadPlayerPDF(playerName) {
                             }
                         }
                       
+                        // expose and call fetchAndRenderHeatmap
+                        try { window.fetchAndRenderHeatmap = fetchAndRenderHeatmap; } catch(e) { /* ignore */ }
                         if (metricEl) metricEl.addEventListener("change", fetchAndRenderHeatmap);
                         fetchAndRenderHeatmap();
                       });
@@ -1303,141 +1524,27 @@ function downloadPlayerPDF(playerName) {
                                                     return 'Short Pitch';
                                                 }
                       
-                        function computeHeatmap(ballsArray, selectedMetric) {
-                          console.warn("computeHeatmap called for:", selectedMetric);
-                          const zones = {};
-                          lengthLabels.forEach(len => lineLabels.forEach(line => {
-                            zones[`${len}-${line}`] = {
-                              balls: 0, runs: 0, boundaries: 0, wickets: 0, dots: 0,
-                              balls_percentage: 0, display_text: '', metric_value: 0
-                            };
-                          }));
+                                                // Client-side computeHeatmap disabled — use server-generated heatmap only.
+                                                function computeHeatmap() {
+                                                    console.warn('computeHeatmap disabled — using server heatmap');
+                                                    return {};
+                                                }
                       
-                          const totalBalls = ballsArray.length;
-                          ballsArray.forEach(b => {
-                            const x = b.scrM_PitchX, y = b.scrM_PitchY;
-                            if (x == null || y == null) return;
-                            const lz = getLengthZone(y);
-                            const ln = getLineZone(x);
-                            if (!lz || !ln) return;
-                            const key = `${lz}-${ln}`;
-                            if (!zones[key]) return;
-                            zones[key].balls += 1;
-                            zones[key].runs += Number(b.scrM_BatsmanRuns) || 0;
-                            if (b.scrM_IsBoundry == 1 || b.scrM_IsSixer == 1) zones[key].boundaries++;
-                            if (b.scrM_IsWicket == 1) zones[key].wickets++;
-                            if ((b.scrM_BatsmanRuns === 0) || Number(b.scrM_BatsmanRuns) === 0) zones[key].dots++;
-                          });
-                      
-                          Object.keys(zones).forEach(k => {
-                            const z = zones[k];
-                            z.balls_percentage = totalBalls > 0 ? +(z.balls / totalBalls * 100).toFixed(1) : 0;
-                            z.metric_value = 0;
-                            if (selectedMetric) {
-                              if (selectedMetric === 'Strike Rate') {
-                                // 🚫 Strike Rate must come from server (SR / BSR handled there)
-                                z.metric_value = null;
-                                z.display_text = '';
-                                return;
-                              }
-                              else if (selectedMetric === 'Dot Ball %')
-                                z.metric_value = z.balls ? +((z.dots / z.balls) * 100).toFixed(2) : 0;
-                              else if (selectedMetric === 'Boundary %')
-                                z.metric_value = z.balls ? +((z.boundaries / z.balls) * 100).toFixed(2) : 0;
-                              else if (selectedMetric === 'Average')
-                                z.metric_value = z.wickets ? +(z.runs / z.wickets).toFixed(2) : 0;
-                              else if (selectedMetric === 'Balls Per Dismissal')
-                                z.metric_value = z.wickets ? +(z.balls / z.wickets).toFixed(2) : 0;
-                              else if (selectedMetric === 'Ball %')
-                                z.metric_value = z.balls_percentage;
-                              else if (selectedMetric === 'Wicket') {
-                                z.metric_value = z.wickets;
-                                z.display_text = z.wickets > 0 ? `<b>${z.wickets}</b><br>Wkt` : '';
-                              }
-                      
-                              if (selectedMetric !== 'Wicket') {
-                                z.display_text = z.metric_value > 0 ? `${selectedMetric}<br>${z.metric_value}` : '';
-                              }
-                            } else {
-                              z.display_text = (z.balls || z.runs || z.boundaries || z.wickets)
-                                ? `${z.balls} b<br>${z.runs} r<br>${z.boundaries} B, ${z.wickets} W` : '';
-                            }
-                          });
-                          return zones;
-                        }
-                      
-                        function updateExistingHeatmapTable(zones, selectedMetric) {
-                          if (!heatmapBody) return;
-                      
-                          const allVals = Object.values(zones).map(z => selectedMetric ? z.metric_value : z.runs);
-                          const maxVal = Math.max(...allVals, 1);
-                      
-                          const rows = heatmapBody.querySelectorAll("tr");
-                          rows.forEach((row, rIdx) => {
-                            const cells = row.querySelectorAll("td");
-                            cells.forEach((td, cIdx) => {
-                              const length = lengthLabels[rIdx] || "";
-                              const line = lineLabels[cIdx] || "";
-                              const key = `${length}-${line}`;
-                              const z = zones[key];
-                              if (!z) return;
-                      
-                              const val = selectedMetric ? z.metric_value : z.runs;
-                      
-                              if (!val) {
-                                td.style.background = 'none';
-                                td.style.backgroundColor = 'transparent';
-                                td.innerHTML = '';
-                                td.style.border = '1px solid rgba(100,100,100,0.3)';
-                                return;
-                              }
-                      
-                              const intensity = Math.min(1, val / maxVal);
-                              let color = selectedMetric && ['Dot Ball %','Ball %'].includes(selectedMetric)
-                                ? `rgba(239,68,68,${Math.max(0.12,intensity)})`
-                                : `rgba(34,197,94,${Math.max(0.12,intensity)})`;
-                              
-                              td.style.backgroundColor = color;
-                              if (z.wickets > 0) td.style.border = '2px solid #ef4444';
-                              else td.style.border = '1px solid rgba(100,100,100,0.3)';
-                              td.innerHTML = `<div class="text-center text-xs font-medium">${z.display_text}</div>`;
-                            });
-                          });
-                        }
+                                                // Client-side updateExistingHeatmapTable disabled to avoid double-rendering.
+                                                function updateExistingHeatmapTable() {
+                                                    console.warn('updateExistingHeatmapTable disabled — server heatmap only');
+                                                }
                       
                         if (metricSelect) {
+                        // Client-side metric-based heatmap update disabled.
+                        // Metrics will trigger server fetch (fetchAndRenderHeatmap) in the upper scope; keep this handler as a no-op.
                         metricSelect.addEventListener('change', function () {
-                            const selectedMetric = this.value;
-
-                            // ✅ Strike Rate must come from server (SR / BSR logic lives there)
-                            if (selectedMetric === 'Strike Rate') {
-                            return; // do nothing — keep server-rendered heatmap
-                            }
-
-                            // ✅ Other metrics can be computed client-side safely
-                            const zones = computeHeatmap(window.baseBalls, selectedMetric);
-                            updateExistingHeatmapTable(zones, selectedMetric);
+                            console.debug('metric change: client-side heatmap update disabled. Server fetch will run instead.');
                         });
                         }
 
                       
-                        const initialJsonEl = document.getElementById("line-length-data");
-                        if (initialJsonEl && initialJsonEl.textContent) {
-                          try {
-                            const initReport = JSON.parse(initialJsonEl.textContent);
-                            if (initReport.heatmap_data) {
-                              updateExistingHeatmapTable(initReport.heatmap_data, metricSelect ? metricSelect.value : '');
-                            } else if (window.baseBalls.length) {
-                              const z = computeHeatmap(window.baseBalls, metricSelect ? metricSelect.value : '');
-                              updateExistingHeatmapTable(z, metricSelect ? metricSelect.value : '');
-                            }
-                          } catch {
-                            if (window.baseBalls.length) {
-                              const z = computeHeatmap(window.baseBalls, metricSelect ? metricSelect.value : '');
-                              updateExistingHeatmapTable(z, metricSelect ? metricSelect.value : '');
-                            }
-                          }
-                        }
+                                                // Client-side initial heatmap rendering disabled: server will render the canonical heatmap via fetchAndRenderHeatmap().
                       });
                       </script>
             
@@ -1524,116 +1631,16 @@ function downloadPlayerPDF(playerName) {
                 return s.includes(f);
             }
 
-            // ✅ Compute zones & metrics
-            function computeHeatmap(ballsArray, selectedMetric) {
-                const zones = {};
-                lengthLabels.forEach(len => lineLabels.forEach(line => {
-                zones[`${len}-${line}`] = {
-                    balls:0, runs:0, boundaries:0, wickets:0, dots:0,
-                    balls_percentage:0, display_text:'', metric_value:0
-                };
-                }));
-
-                const totalBalls = ballsArray.length;
-                ballsArray.forEach(b => {
-                const x = b.scrM_PitchX, y = b.scrM_PitchY;
-                if (x == null || y == null) return;
-                const lz = getLengthZone(y);
-                const ln = getLineZone(x);
-                if (!lz || !ln) return;
-                const key = `${lz}-${ln}`;
-                if (!zones[key]) return;
-                zones[key].balls += 1;
-                zones[key].runs += Number(b.scrM_BatsmanRuns) || 0;
-                if (b.scrM_IsBoundry == 1 || b.scrM_IsSixer == 1) zones[key].boundaries++;
-                if (b.scrM_IsWicket == 1) zones[key].wickets++;
-                if ((b.scrM_BatsmanRuns === 0) || Number(b.scrM_BatsmanRuns) === 0) zones[key].dots++;
-                });
-
-                Object.keys(zones).forEach(k => {
-                const z = zones[k];
-                z.balls_percentage = totalBalls > 0 ? +(z.balls / totalBalls * 100).toFixed(1) : 0;
-                z.metric_value = 0;
-                if (selectedMetric) {
-                    if (selectedMetric === 'Strike Rate') {
-                    // 🚫 Strike Rate must come from server (SR / BSR handled there)
-                    z.metric_value = null;
-                    z.display_text = '';
-                    return;
-                    }
-                    else if (selectedMetric === 'Dot Ball %')
-                        z.metric_value = z.balls ? +((z.dots / z.balls) * 100).toFixed(2) : 0;
-                    else if (selectedMetric === 'Boundary %')
-                        z.metric_value = z.balls ? +((z.boundaries / z.balls) * 100).toFixed(2) : 0;
-                    else if (selectedMetric === 'Average')
-                        z.metric_value = z.wickets ? +(z.runs / z.wickets).toFixed(2) : 0;
-                    else if (selectedMetric === 'Balls Per Dismissal')
-                        z.metric_value = z.wickets ? +(z.balls / z.wickets).toFixed(2) : 0;
-                    else if (selectedMetric === 'Ball %')
-                        z.metric_value = z.balls_percentage;
-                    else if (selectedMetric === 'Wicket') {
-                        z.metric_value = z.wickets;
-                        // 🟥 Show count in text for wicket boxes
-                        z.display_text = z.wickets > 0 ? `<b>${z.wickets}</b><br>Wkt` : '0';
-                    }
-
-                    if (selectedMetric !== 'Wicket') {
-                        z.display_text = `${selectedMetric}<br>${z.metric_value}`;
-                    }
-                } else {
-                    z.display_text = `${z.balls} b<br>${z.runs} r<br>${z.boundaries} B, ${z.wickets} W`;
-                }
-
-                });
-                return zones;
+            // Client-side computeHeatmap disabled — server provides canonical heatmap
+            function computeHeatmap() {
+                console.warn('computeHeatmap disabled — using server heatmap');
+                return {};
             }
 
             // ✅ Render to table
-            function renderHeatmapFromZones(zones, selectedMetric) {
-                heatmapHead.innerHTML = '';
-                heatmapBody.innerHTML = '';
-                const vals = Object.values(zones).map(z => selectedMetric ? z.metric_value : z.runs);
-                const maxVal = Math.max(...vals, 1);
-
-                const headerRow = document.createElement('tr');
-                headerRow.innerHTML = `<th></th>`;
-                lineLabels.forEach(l => {
-                const th = document.createElement('th');
-                th.className = 'p-2 border border-slate-300 dark:border-zink-600 text-center font-semibold';
-                th.textContent = l;
-                headerRow.appendChild(th);
-                });
-                heatmapHead.appendChild(headerRow);
-
-                lengthLabels.forEach(length => {
-                const tr = document.createElement('tr');
-                const th = document.createElement('th');
-                th.className = 'p-2 border border-slate-300 dark:border-zink-600 text-left font-semibold';
-                th.textContent = length;
-                tr.appendChild(th);
-
-                lineLabels.forEach(line => {
-                    const key = `${length}-${line}`;
-                    const z = zones[key] || { balls:0, runs:0, boundaries:0, wickets:0, metric_value:0, display_text:'' };
-                    const td = document.createElement('td');
-                    td.className = 'p-2 border border-slate-300 dark:border-zink-600 text-center';
-                    if (z.balls === 0 && z.runs === 0 && z.boundaries === 0 && z.wickets === 0) {
-                    td.style.backgroundColor = 'transparent';
-                    td.innerHTML = '';
-                    } else {
-                    const val = selectedMetric ? z.metric_value : z.runs;
-                    const intensity = Math.min(1, val / maxVal);
-                    let color = selectedMetric && ['Dot Ball %','Ball %'].includes(selectedMetric)
-                        ? `rgba(239,68,68,${Math.max(0.12,intensity)})`
-                        : `rgba(34,197,94,${Math.max(0.12,intensity)})`;
-                    td.style.backgroundColor = color;
-                    if (z.wickets > 0) td.style.border = '2px solid #ef4444';
-                    td.innerHTML = `<div class="text-center text-xs font-medium">${z.display_text}</div>`;
-                    }
-                    tr.appendChild(td);
-                });
-                heatmapBody.appendChild(tr);
-                });
+            // Client-side renderHeatmapFromZones disabled. Server will render canonical heatmap into #heatmap-matrix
+            function renderHeatmapFromZones() {
+                console.warn('renderHeatmapFromZones disabled — using server heatmap');
             }
 
             // ✅ Main filter handler (improved)
@@ -1681,13 +1688,25 @@ function downloadPlayerPDF(playerName) {
                 return;
                 }
 
-                // 🚫 Do NOT recompute Strike Rate on client
-                if (selectedMetric === 'Strike Rate') {
-                return; // keep server-rendered SR / BSR
+                // Keep server-rendered heatmap unchanged; filters update pitch pad and then refresh server heatmap.
+                if (typeof plotPoints === "function") {
+                plotPoints(filtered);
                 }
 
-                const zones = computeHeatmap(filtered, selectedMetric);
-                renderHeatmapFromZones(zones, selectedMetric);
+                // trigger server-side heatmap refresh so both views stay in sync
+                if (typeof window.fetchAndRenderHeatmap === 'function') {
+                try {
+                    // fetchAndRenderHeatmap returns a promise (async function)
+                    window.fetchAndRenderHeatmap().then(() => {
+                    // after server refresh, sync pitch pad with server pitch points
+                    if (window.currentPitchMapPoints && typeof plotPoints === 'function') {
+                        plotPoints(window.currentPitchMapPoints);
+                    }
+                    }).catch(e => console.warn('fetchAndRenderHeatmap failed', e));
+                } catch (e) {
+                    console.warn('fetchAndRenderHeatmap invocation failed', e);
+                }
+                }
 
             }
 
@@ -1710,28 +1729,7 @@ function downloadPlayerPDF(playerName) {
 
             // if (metricSelect) metricSelect.addEventListener('change', applyQuickHeatmapFilters);
 
-            // ✅ Initial render
-            const initialJsonEl = document.getElementById("line-length-data");
-            if (initialJsonEl && initialJsonEl.textContent) {
-                try {
-                const initReport = JSON.parse(initialJsonEl.textContent);
-                if (initReport.heatmap_data) {
-                    renderHeatmapFromZones(initReport.heatmap_data, metricSelect ? metricSelect.value : '');
-                } else if (baseBalls.length) {
-                const m = metricSelect ? metricSelect.value : '';
-                if (m !== 'Strike Rate') {
-                    const z = computeHeatmap(baseBalls, m);
-                    renderHeatmapFromZones(z, m);
-                }
-                }
-
-                } catch {
-                if (baseBalls.length) {
-                    const z = computeHeatmap(baseBalls, metricSelect ? metricSelect.value : '');
-                    renderHeatmapFromZones(z, metricSelect ? metricSelect.value : '');
-                }
-                }
-            }
+            // Initial client-side heatmap render disabled. Server will provide the canonical heatmap via /apps/heatmap_matrix.
             });
         </script>
 
@@ -1780,6 +1778,19 @@ function downloadPlayerPDF(playerName) {
             // Re-render only the filtered points. plotPoints uses global pointsContainer.
             if (typeof plotPoints === "function") {
                 plotPoints(filteredPoints);
+
+                // Also request server heatmap refresh so heatmap cells update to match the pitch filter
+                if (typeof window.fetchAndRenderHeatmap === 'function') {
+                try {
+                    window.fetchAndRenderHeatmap().then(() => {
+                    if (window.currentPitchMapPoints && typeof plotPoints === 'function') {
+                        plotPoints(window.currentPitchMapPoints);
+                    }
+                    }).catch(e => console.warn('fetchAndRenderHeatmap failed', e));
+                } catch (e) {
+                    console.warn('fetchAndRenderHeatmap invocation failed', e);
+                }
+                }
             } else {
                 console.warn("plotPoints() is not defined yet.");
             }
@@ -1850,28 +1861,47 @@ function downloadPlayerPDF(playerName) {
         // ✅ fixed version: skip the Y-axis header cell (first <th>)
         function applyOrientationToHeaders(orientation) {
             const labels = LABELS[orientation] || LABELS.RHB;
-            const selectors = [
-            '#heatmap-matrix table thead tr:first-child th',
-            '#heatmap-matrix thead tr:first-child th',
-            '#zone-heatmap-table thead tr:first-child th',
-            '#heatmap-matrix th',
-            '#zone-heatmap-table th'
+
+            // Update header texts (skip first Y-axis header)
+            const headerSelectors = [
+                '#heatmap-matrix table thead tr:first-child th',
+                '#heatmap-matrix thead tr:first-child th',
+                '#zone-heatmap-table thead tr:first-child th',
+                '#heatmap-matrix th',
+                '#zone-heatmap-table th'
             ];
 
-            for (const sel of selectors) {
-            const ths = Array.from(document.querySelectorAll(sel));
-            if (!ths || ths.length === 0) continue;
-
-            // Always skip the first header cell (Y-axis "Length" column)
-            const startIdx = 1;
-            for (let i = 0; i < labels.length; i++) {
-                const targetIdx = startIdx + i;
-                if (ths[targetIdx]) {
-                ths[targetIdx].textContent = labels[i];
-                ths[targetIdx].style.textAlign = "center";
+            for (const sel of headerSelectors) {
+                const ths = Array.from(document.querySelectorAll(sel));
+                if (!ths || ths.length === 0) continue;
+                const startIdx = 1;
+                for (let i = 0; i < labels.length; i++) {
+                    const targetIdx = startIdx + i;
+                    if (ths[targetIdx]) {
+                        ths[targetIdx].textContent = labels[i];
+                        ths[targetIdx].style.textAlign = 'center';
+                    }
                 }
             }
-            }
+
+            // Now reorder the server heatmap table columns so cells map correctly when LHB is chosen.
+            const table = document.querySelector('#heatmap-table') || document.querySelector('#heatmap-matrix table');
+            if (!table) return;
+
+            const prev = table.dataset.orientApplied || 'RHB';
+            if (prev === orientation) return; // already applied
+
+            const tbodyRows = Array.from(table.querySelectorAll('tbody tr'));
+            tbodyRows.forEach(tr => {
+                const cells = Array.from(tr.children || []);
+                if (cells.length <= 1) return; // nothing to reorder
+                const bodyCells = cells.slice(1);
+                // move nodes to reverse order (preserves event listeners)
+                const reversed = bodyCells.slice().reverse();
+                reversed.forEach(c => tr.appendChild(c));
+            });
+
+            table.dataset.orientApplied = orientation;
         }
 
         // when Batter filter clicked
@@ -2446,69 +2476,138 @@ function renderLineLengthReport() {
         });
     }
 
-    // --- Heatmap Table Builder (unchanged) ---
+    // --- Heatmap Table Builder (updated to support filtering) ---
     function updateHeatmap(points) {
-        const heatmapTableHead = document.querySelector('#zone-heatmap-table thead');
-        const heatmapTableBody = document.querySelector('#zone-heatmap-table tbody');
-        if (!heatmapTableHead || !heatmapTableBody) return;
+        const heatmapContainer = document.getElementById('heatmap-matrix');
+        if (!heatmapContainer) return;
 
-        heatmapTableHead.innerHTML = '';
-        heatmapTableBody.innerHTML = '';
+        // ✅ Always compute from filtered points to respect batter/bowler filters
+        const newHeatmapData = {};
+        const lengthTotals = {};
+        const lineTotals = {};
+        
+        points.forEach(p => {
+            if (p.scrM_PitchX === null || p.scrM_PitchY === null) return;
+            const lengthZone = getLengthZone(p.scrM_PitchY);
+            const lineZone = getLineZone(p.scrM_PitchX);
+            const zoneName = `${lengthZone}-${lineZone}`;
+            
+            // Initialize zone data
+            if (!newHeatmapData[zoneName])
+                newHeatmapData[zoneName] = { balls: 0, runs: 0, boundaries: 0, wickets: 0, dots: 0 };
+            
+            // Initialize totals
+            if (!lengthTotals[lengthZone])
+                lengthTotals[lengthZone] = { balls: 0, runs: 0, boundaries: 0, wickets: 0, dots: 0 };
+            if (!lineTotals[lineZone])
+                lineTotals[lineZone] = { balls: 0, runs: 0, boundaries: 0, wickets: 0, dots: 0 };
+            
+            const runs = Number(p.scrM_BatsmanRuns) || 0;
+            const isBoundary = (p.scrM_IsBoundry == 1 || p.scrM_IsSixer == 1);
+            const isWicketFlag =
+                Number(p.scrM_IsWicket) === 1 ||
+                Number(p.is_wicket) === 1 ||
+                Number(p.scrM_IsWicketBall) === 1 ||
+                (p.scrM_WicketType &&
+                    String(p.scrM_WicketType).trim() !== "" &&
+                    String(p.scrM_WicketType).toLowerCase() !== "none");
+            const isDot = (runs === 0 && !isWicketFlag);
+            
+            // Update zone data
+            newHeatmapData[zoneName].balls++;
+            newHeatmapData[zoneName].runs += runs;
+            if (isBoundary) newHeatmapData[zoneName].boundaries++;
+            if (isWicketFlag) newHeatmapData[zoneName].wickets++;
+            if (isDot) newHeatmapData[zoneName].dots++;
+            
+            // Update totals
+            lengthTotals[lengthZone].balls++;
+            lengthTotals[lengthZone].runs += runs;
+            if (isBoundary) lengthTotals[lengthZone].boundaries++;
+            if (isWicketFlag) lengthTotals[lengthZone].wickets++;
+            if (isDot) lengthTotals[lengthZone].dots++;
+            
+            lineTotals[lineZone].balls++;
+            lineTotals[lineZone].runs += runs;
+            if (isBoundary) lineTotals[lineZone].boundaries++;
+            if (isWicketFlag) lineTotals[lineZone].wickets++;
+            if (isDot) lineTotals[lineZone].dots++;
+        });
 
-        // ✅ Read server-provided heatmap data (for metrics + batter/bowler)
-        let serverData = null;
-        let totalsByLength = null;
-        let totalsByLine = null;
-
-        try {
-            const lineLengthDataEl = document.getElementById('line-length-data');
-            if (lineLengthDataEl && lineLengthDataEl.textContent) {
-                const parsed = JSON.parse(lineLengthDataEl.textContent || '{}');
-                if (parsed && parsed.heatmap_data) {
-                    serverData = parsed.heatmap_data;
-                    totalsByLength = parsed.totals_by_length || null;
-                    totalsByLine = parsed.totals_by_line || null;
+        // Compute metrics for totals
+        const totalsByLength = {};
+        const totalsByLine = {};
+        
+        Object.keys(lengthTotals).forEach(zone => {
+            const data = lengthTotals[zone];
+            totalsByLength[zone] = computeMetrics(data);
+        });
+        
+        Object.keys(lineTotals).forEach(zone => {
+            const data = lineTotals[zone];
+            totalsByLine[zone] = computeMetrics(data);
+        });
+        
+        // Compute metrics for each cell
+        const serverData = {};
+        Object.keys(newHeatmapData).forEach(zoneName => {
+            const data = newHeatmapData[zoneName];
+            serverData[zoneName] = computeMetrics(data);
+        });
+        
+        function computeMetrics(data) {
+            const balls = data.balls || 0;
+            const runs = data.runs || 0;
+            const wickets = data.wickets || 0;
+            const boundaries = data.boundaries || 0;
+            const dots = data.dots || 0;
+            
+            let metricValue = 0;
+            const selectedMetric = (document.getElementById("metric")?.value || "").trim();
+            
+            if (balls > 0) {
+                switch (selectedMetric) {
+                    case 'Strike Rate':
+                        metricValue = ((runs / balls) * 100).toFixed(1);
+                        break;
+                    case 'Dot Ball %':
+                        metricValue = ((dots / balls) * 100).toFixed(1);
+                        break;
+                    case 'Boundary %':
+                        metricValue = ((boundaries / balls) * 100).toFixed(1);
+                        break;
+                    case 'Average':
+                        metricValue = wickets > 0 ? (runs / wickets).toFixed(2) : runs.toFixed(2);
+                        break;
+                    case 'Balls Per Dismissal':
+                        metricValue = wickets > 0 ? (balls / wickets).toFixed(1) : balls;
+                        break;
+                    case 'Ball %':
+                        const totalBalls = points.length;
+                        metricValue = totalBalls > 0 ? ((balls / totalBalls) * 100).toFixed(1) : 0;
+                        break;
+                    case 'Wicket':
+                        metricValue = wickets;
+                        break;
+                    default:
+                        metricValue = runs;
                 }
             }
-        } catch (e) {
-            console.warn("Failed to parse server line_length_report:", e);
-            serverData = null;
-        }
-
-        // Fallback: compute from points
-        const newHeatmapData = {};
-        if (!serverData) {
-            points.forEach(p => {
-                if (p.scrM_PitchX === null || p.scrM_PitchY === null) return;
-                const lengthZone = getLengthZone(p.scrM_PitchY);
-                const lineZone = getLineZone(p.scrM_PitchX);
-                const zoneName = `${lengthZone}-${lineZone}`;
-                if (!newHeatmapData[zoneName])
-                    newHeatmapData[zoneName] = { balls: 0, runs: 0, boundaries: 0, wickets: 0 };
-                newHeatmapData[zoneName].balls++;
-                newHeatmapData[zoneName].runs += Number(p.scrM_BatsmanRuns) || 0;
-                if (p.scrM_IsBoundry == 1 || p.scrM_IsSixer == 1)
-                    newHeatmapData[zoneName].boundaries++;
-                const isWicketFlag =
-                    Number(p.scrM_IsWicket) === 1 ||
-                    Number(p.is_wicket) === 1 ||
-                    Number(p.scrM_IsWicketBall) === 1 ||
-                    (p.scrM_WicketType &&
-                        String(p.scrM_WicketType).trim() !== "" &&
-                        String(p.scrM_WicketType).toLowerCase() !== "none");
-                if (isWicketFlag) newHeatmapData[zoneName].wickets++;
-            });
+            
+            return {
+                balls: balls,
+                runs: runs,
+                wickets: wickets,
+                boundaries: boundaries,
+                dots: dots,
+                metric_value: metricValue
+            };
         }
 
         // ✅ For color intensity
         let maxRuns = 1;
-        if (serverData) {
-            const runsArr = Object.values(serverData).map(v => Number(v.runs) || 0);
-            if (runsArr.length) maxRuns = Math.max(1, ...runsArr);
-        } else {
-            const runsArr = Object.values(newHeatmapData).map(d => Number(d.runs || 0));
-            if (runsArr.length) maxRuns = Math.max(1, ...runsArr);
-        }
+        const runsArr = Object.values(serverData).map(v => Number(v.runs) || 0);
+        if (runsArr.length) maxRuns = Math.max(1, ...runsArr);
 
         // ✅ Axis label formatter
         const selectedMetric = (document.getElementById("metric")?.value || "").trim();
@@ -2537,6 +2636,16 @@ function renderLineLengthReport() {
             }
         }
 
+        // ✅ Create table structure
+        heatmapContainer.innerHTML = '';
+        const table = document.createElement('table');
+        table.className = 'w-full text-xs border-collapse';
+        table.style.tableLayout = 'fixed';
+        table.style.width = '100%';
+        
+        const thead = document.createElement('thead');
+        const tbody = document.createElement('tbody');
+
         // ✅ Header (X-axis = Line)
         const headerRow = document.createElement('tr');
         headerRow.innerHTML = `<th class="p-2 border border-slate-300 dark:border-zink-600"></th>`;
@@ -2550,7 +2659,7 @@ function renderLineLengthReport() {
             th.textContent = formattedLabel;
             headerRow.appendChild(th);
         });
-        heatmapTableHead.appendChild(headerRow);
+        thead.appendChild(headerRow);
 
         // ✅ Body rows (Y-axis = Length)
         lengthLabels.forEach(length => {
@@ -2567,8 +2676,7 @@ function renderLineLengthReport() {
 
             lineLabels.forEach(line => {
                 const zoneName = `${length}-${line}`;
-                const serverZone = serverData ? serverData[zoneName] : null;
-                const data = serverZone ? serverZone : (newHeatmapData[zoneName] || { balls: 0, runs: 0, boundaries: 0, wickets: 0, display_text: null });
+                const data = serverData[zoneName] || { balls: 0, runs: 0, boundaries: 0, wickets: 0, display_text: null, metric_value: 0 };
 
                 const td = document.createElement('td');
                 td.className = 'p-2 border border-slate-300 dark:border-zink-600 text-center';
@@ -2639,7 +2747,7 @@ function renderLineLengthReport() {
                         zone: zoneName
                     });
 
-                    document.querySelectorAll('#zone-heatmap-table td').forEach(c => c.classList.remove('active-cell'));
+                    document.querySelectorAll('#heatmap-matrix td').forEach(c => c.classList.remove('active-cell'));
                     td.classList.add('active-cell');
                     window.open(`/video_player?${queryParams.toString()}`, "_blank");
                 });
@@ -2672,8 +2780,13 @@ function renderLineLengthReport() {
                 bodyRow.appendChild(td);
             });
 
-            heatmapTableBody.appendChild(bodyRow);
+            tbody.appendChild(bodyRow);
         });
+        
+        // ✅ Assemble and append table
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        heatmapContainer.appendChild(table);
     }
 
 
@@ -2706,6 +2819,19 @@ function renderLineLengthReport() {
 
 
         updateHeatmap(filteredPoints);
+
+        // Also request server-side heatmap refresh so the canonical heatmap updates to match these client filters
+        if (typeof window.fetchAndRenderHeatmap === 'function') {
+            try {
+                window.fetchAndRenderHeatmap().then(() => {
+                    if (window.currentPitchMapPoints && typeof plotPoints === 'function') {
+                        plotPoints(window.currentPitchMapPoints);
+                    }
+                }).catch(e => console.warn('fetchAndRenderHeatmap failed', e));
+            } catch (e) {
+                console.warn('fetchAndRenderHeatmap invocation failed', e);
+            }
+        }
 
         let pitchMapPoints = filteredPoints;
         if (currentRunFilter !== 'all') {
@@ -3112,76 +3238,6 @@ function renderLineLengthReport() {
 }
 
 </style>
-
-<!-- ✅ Add this new script AFTER all your other scripts -->
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    console.log("✅ Heatmap video handler loaded");
-
-    // Delegate click event for all heatmap cells dynamically
-    document.addEventListener('click', async function (e) {
-    const cell = e.target.closest('.heatmap-cell');
-    if (!cell) return;
-
-    // build payload (existing code) ...
-    // (I assume your code already sets the `payload` variable)
-    // For safety, re-create payload here (or keep your existing payload construction).
-    const metricDropdown = document.querySelector('#metric');
-    const metric = metricDropdown ? metricDropdown.value : (cell.getAttribute('data-metric') || null);
-    const type = document.querySelector('input[name="type"]:checked')?.value || 'batter';
-    const matchesSelect = document.querySelector('select[name="matches[]"]');
-    const matches = matchesSelect ? Array.from(matchesSelect.selectedOptions).map(opt => opt.value).filter(Boolean) : [];
-    const batters = Array.from(document.querySelectorAll('select[name="batters[]"] option:checked')).map(o => o.value);
-    const bowlers = Array.from(document.querySelectorAll('select[name="bowlers[]"] option:checked')).map(o => o.value);
-    const inning = document.querySelector('select[name="inning"]')?.value || null;
-    const session = document.querySelector('select[name="session"]')?.value || null;
-    const day = document.querySelector('select[name="day"]')?.value || null;
-    const from_over = document.querySelector('input[name="from_over"]')?.value || null;
-    const to_over = document.querySelector('input[name="to_over"]')?.value || null;
-
-    const payload = {
-        matches,
-        line: cell.getAttribute('data-line'),
-        length: cell.getAttribute('data-length'),
-        metric,
-        type,
-        batters,
-        bowlers,
-        inning,
-        session,
-        day,
-        from_over,
-        to_over
-    };
-
-    try {
-        const res = await fetch('/apps/heatmap_videos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        credentials: 'same-origin'
-        });
-
-        const data = await res.json();
-        if (!data.ok) { alert("Failed to fetch videos."); return; }
-        const videos = data.videos || [];
-        if (!videos.length) { alert("No videos found for this metric/box."); return; }
-
-        // Open player using POST helper
-        openVideoPlayerViaPost(videos, {});
-    } catch (err) {
-        console.error("❌ Request failed:", err);
-        alert("Failed to fetch videos.");
-    }
-    });
-});
-</script>
-
-
-
-
-
-
 
 
 {% endblock content %}
