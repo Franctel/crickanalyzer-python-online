@@ -572,7 +572,12 @@ def advanced_filters():
                     "beaten": (ball_by_ball_df["scrM_IsBeaten"] == 1),
                     "uncomfort": (ball_by_ball_df["scrM_IsUncomfort"] == 1),
                     "wickets": (ball_by_ball_df["scrM_IsWicket"] == 1),
-                    "dotballs": (ball_by_ball_df["scrM_BatsmanRuns"] == 0) & (ball_by_ball_df["scrM_IsValidBall"] == 1)
+                    "dotballs": (ball_by_ball_df["scrM_BatsmanRuns"] == 0) & (ball_by_ball_df["scrM_IsValidBall"] == 1),
+                    # Wide/No Ball support
+                    "wide": (ball_by_ball_df.get("scrM_IsWideBall") == 1),
+                    "wide ball": (ball_by_ball_df.get("scrM_IsWideBall") == 1),
+                    "noball": (ball_by_ball_df.get("scrM_IsNoBall") == 1),
+                    "no ball": (ball_by_ball_df.get("scrM_IsNoBall") == 1)
                 }
 
                 # Apply known filters

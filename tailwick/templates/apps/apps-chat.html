@@ -525,6 +525,8 @@ function downloadPlayerPDF(playerName) {
                 <button data-filter="wickets" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Wickets</button>
                 <button data-filter="beaten" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Beaten</button>
                 <button data-filter="uncomfortable" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Uncomfortable</button>
+                <button data-filter="wide" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Wide Ball</button>
+                <button data-filter="noball" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">No Ball</button>
                 <button data-filter="last10" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Last 10 Balls</button>
                 <button data-filter="last20" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Last 20 Balls</button>
                 <button data-filter="play-all" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-green-500 text-white">Play All</button>
@@ -3018,9 +3020,28 @@ function renderLineLengthReport() {
                 }
 
                 // Runs bubble now acts as the clickable play button
+                // For wides/no-balls show WB/NB or e.g. 2WB/2NB when extra runs > 1
+                let displayRuns = '';
+                try {
+                    const batsmanRuns = (ball.scrM_BatsmanRuns !== undefined && ball.scrM_BatsmanRuns !== null) ? Number(ball.scrM_BatsmanRuns) : NaN;
+                    if (ball.scrM_IsWideBall == 1) {
+                        const wr = Number(ball.scrM_WideRuns) || 0;
+                        displayRuns = wr <= 1 ? 'WD' : `${wr}WD`;
+                    } else if (ball.scrM_IsNoBall == 1) {
+                        const nr = Number(ball.scrM_NoBallRuns) || 0;
+                        displayRuns = nr <= 1 ? 'NB' : `${nr}NB`;
+                    } else if (!Number.isNaN(batsmanRuns)) {
+                        displayRuns = String(batsmanRuns);
+                    } else {
+                        displayRuns = ball.scrM_BatsmanRuns || '';
+                    }
+                } catch (e) {
+                    displayRuns = ball.scrM_BatsmanRuns || '';
+                }
+
                 let runsHtml = `
                     <div class="w-20 mx-auto text-center text-white font-semibold rounded-full py-1 text-lg ${wicketClass}">
-                        ${ball.scrM_BatsmanRuns}
+                        ${displayRuns}
                     </div>
                 `;
 
@@ -3049,7 +3070,7 @@ function renderLineLengthReport() {
                             style="background:none;border:none;cursor:pointer"
                         >
                             <div class="w-20 mx-auto text-center text-white font-semibold rounded-full py-1 text-lg ${wicketClass}">
-                                ${ball.scrM_BatsmanRuns}
+                                ${displayRuns}
                             </div>
                         </button>
                     `;
@@ -3146,6 +3167,12 @@ function renderLineLengthReport() {
                         break;
                     case 'beaten':
                         filteredBalls = allBalls.filter(b => b.scrM_IsBeaten == 1);
+                        break;
+                    case 'wide':
+                        filteredBalls = allBalls.filter(b => b.scrM_IsWideBall == 1);
+                        break;
+                    case 'noball':
+                        filteredBalls = allBalls.filter(b => b.scrM_IsNoBall == 1);
                         break;
                     case 'uncomfortable':
                         filteredBalls = allBalls.filter(b => b.scrM_IsUncomfort == 1);
