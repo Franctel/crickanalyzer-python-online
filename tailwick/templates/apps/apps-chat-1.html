@@ -1,0 +1,3271 @@
+{% extends 'partials/base.html' %}
+{% block title %}PLAYER ANALYSIS{% endblock title %}
+
+{% block content %}
+<div class="order-6 col-span-12 2xl:order-1 card 2xl:col-span-12">
+    <div class="card-body">
+        <button type="button" id="toggle-filter-btn" class="flex items-center justify-between w-full px-4 py-2 mb-4 text-sm font-medium text-left text-white bg-custom-500 rounded-md hover:bg-custom-600 focus:outline-none focus-visible:ring focus-visible:ring-custom-500 focus-visible:ring-opacity-75">
+            <span>Filters</span>
+            <svg id="filter-arrow" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5 transition-transform duration-200"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <div id="filter-section">
+            <form method="POST">
+                <h5 class="text-16 mb-4">Advanced Match Filters</h5>
+
+                <!-- Row 1 (Player Analysis 1): Player, Format, Tournament (multiselect), Team (multiselect), Matches -->
+                <div class="flex flex-col gap-3 md:flex-row md:items-center">
+                    <!-- Player (single select) -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="player" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Player</label>
+                        <select id="player" name="player" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            <option value="" disabled {% if not request.form.get('player') %}selected{% endif %}>Select Player</option>
+                            {% for p in players %}
+                                <option value="{{ p.id }}" {% if request.form.get('player') == p.id %}selected{% endif %}>{{ p.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Format (single select) -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="format_override" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Format</label>
+                        <select id="format_override" name="format_override" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100" onchange="this.form.submit()">
+                            <option value="" {% if not request.form.get('format_override') %}selected{% endif %}>Auto</option>
+                            <option value="t10" {% if request.form.get('format_override') == 't10' %}selected{% endif %}>T10</option>
+                            <option value="t20" {% if request.form.get('format_override') == 't20' %}selected{% endif %}>T20</option>
+                            <option value="odi" {% if request.form.get('format_override') == 'odi' %}selected{% endif %}>ODI</option>
+                            <option value="test" {% if request.form.get('format_override') == 'test' %}selected{% endif %}>Test</option>
+                        </select>
+                    </div>
+
+                    <!-- Tournament (multiselect) -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="tournaments" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Tournament</label>
+                        <select id="tournaments" name="tournaments[]" multiple data-choices data-choices-removeItem onchange="this.form.submit()" class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            {% for t in tournaments %}
+                                <option value="{{ t.value }}" {% if (t.value|string) in request.form.getlist('tournaments[]') or (t.value) in request.form.getlist('tournaments[]') %}selected{% endif %}>{{ t.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Team (multiselect) -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="team_multi" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Team</label>
+                        <select id="team_multi" name="team[]" multiple data-choices data-choices-removeItem onchange="this.form.submit()" class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            {% for t in teams %}
+                                <option value="{{ t.value }}" {% if (t.value|string) in request.form.getlist('team[]') or (t.value) in request.form.getlist('team[]') %}selected{% endif %}>{{ t.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Matches (multiselect) -->
+                    <div class="relative w-full md:w-1/2">
+                        <label for="matches" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Matches</label>
+                        <select id="matches" name="matches[]" multiple data-choices data-choices-removeItem class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            <option value="All" {% if 'All' in request.form.getlist('matches[]') %}selected{% endif %}>All</option>
+                            {% for m in matches %}
+                                <option value="{{ m.value if m.value is defined else m }}" {% if (m.value is defined and ((m.value|string) in request.form.getlist('matches[]') or (m.value) in request.form.getlist('matches[]'))) or (not (m.value is defined) and (m in request.form.getlist('matches[]'))) %}selected{% endif %}>{{ m.label if m.label is defined else m }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Format-Specific Filters -->
+                {# Robust detection for limited-overs formats #}
+                {% set _fmt = match_format.lower() if match_format else '' %}
+                {% if _fmt and ('t10' in _fmt or 't20' in _fmt or 'twenty' in _fmt or 'odi' in _fmt or 'one day' in _fmt or 'one-day' in _fmt or 'limited' in _fmt or '20' in _fmt or '50' in _fmt) %}
+                <!-- ⚾ LIMITED OVERS FILTERS -->
+                <div class="flex flex-col gap-3 mt-4 md:flex-row md:items-center">
+                    <!-- Inning (moved up) -->
+                    <!-- <div class="relative w-full md:w-1/4">
+                        <label for="inning" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Inning</label>
+                        <select id="inning" name="inning" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            <option disabled {% if not request.form.get('inning') %}selected{% endif %}>Select Inning</option>
+                            {% for inn in innings %}
+                            <option value="{{ inn }}" {% if request.form.get('inning') == inn %}selected{% endif %}>{{ inn }}</option>
+                            {% endfor %}
+                        </select>
+                    </div> -->
+
+                    <!-- Phase -->
+                    <div class="relative w-full md:w-1/4">
+                    <label for="phase" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                        Phase
+                    </label>
+
+                    {% if match_format %}
+                        {% set fmt = match_format.lower() %}
+                        {% if 't10' in fmt %}
+                        {% set total_overs = 10 %}
+                        {% elif 't20' in fmt or 'twenty' in fmt %}
+                        {% set total_overs = 20 %}
+                        {% elif 'odi' in fmt or 'one day' in fmt or '50' in fmt %}
+                        {% set total_overs = 50 %}
+                        {% else %}
+                        {% set total_overs = None %}
+                        {% endif %}
+                    {% else %}
+                        {% set total_overs = None %}
+                    {% endif %}
+
+                    {% if total_overs %}
+                        {% if total_overs == 50 %}
+                        {# Exact ODI buckets #}
+                        {% set powerplay_end = 10 %}
+                        {% set middle_end = 40 %}
+                        {% elif total_overs == 20 %}
+                        {# Exact T20 buckets #}
+                        {% set powerplay_end = 6 %}
+                        {% set middle_end = 15 %}
+                        {% elif total_overs == 10 %}
+                        {# Exact T10 buckets #}
+                        {% set powerplay_end = 3 %}
+                        {% set middle_end = 7 %}
+                        {% else %}
+                        {# Generic split for other limited-overs formats #}
+                        {% set powerplay_end = (total_overs * 0.3) | round(0, 'floor') | int %}
+                        {% set middle_end = (total_overs * 0.75) | round(0, 'floor') | int %}
+                        {% endif %}
+                    {% endif %}
+
+                    <select id="phase" name="phase"
+                        class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <option disabled {% if not request.form.get('phase') %}selected{% endif %}>Select Phase</option>
+
+                        {% if is_ispl and ispl_phase_options %}
+                            {% for val, label in ispl_phase_options %}
+                                <option value="{{ val }}" {% if request.form.get('phase') == val %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        {% else %}
+                            {% if total_overs %}
+                                <!-- 🆕 All Overs option -->
+                                <option value="All" {% if request.form.get('phase') == 'All' %}selected{% endif %}>
+                                    All (1–{{ total_overs | int }})
+                                </option>
+
+                                <option value="Powerplay" {% if request.form.get('phase') == 'Powerplay' %}selected{% endif %}>
+                                    Powerplay (1–{{ powerplay_end | int }})
+                                </option>
+                                <option value="Middle" {% if request.form.get('phase') == 'Middle' %}selected{% endif %}>
+                                    Middle Overs ({{ (powerplay_end + 1) | int }}–{{ middle_end | int }})
+                                </option>
+                                <option value="Death" {% if request.form.get('phase') == 'Death' %}selected{% endif %}>
+                                    Slog Overs ({{ (middle_end + 1) | int }}–{{ total_overs | int }})
+                                </option>
+                            {% else %}
+                                <!-- Default if format unknown -->
+                                <option value="All" {% if request.form.get('phase') == 'All' %}selected{% endif %}>All</option>
+                                <option value="Powerplay" {% if request.form.get('phase') == 'Powerplay' %}selected{% endif %}>Powerplay</option>
+                                <option value="Middle" {% if request.form.get('phase') == 'Middle' %}selected{% endif %}>Middle Overs</option>
+                                <option value="Death" {% if request.form.get('phase') == 'Death' %}selected{% endif %}>Slog Overs</option>
+                            {% endif %}
+                        {% endif %}
+                    </select>
+                    </div>
+
+
+
+
+
+                    <!-- From Over -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="from_over" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">From Over</label>
+                        <input type="number" id="from_over" name="from_over" value="{{ from_over or '' }}" min="1" max="50" class="form-input w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"/>
+                    </div>
+
+                    <!-- To Over -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="to_over" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">To Over</label>
+                        <input type="number" id="to_over" name="to_over" value="{{ to_over or '' }}" min="1" max="50" class="form-input w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"/>
+                    </div>
+                </div>
+                {% else %}
+                <!-- 🕰 MULTIDAY FILTERS -->
+                <div class="flex flex-col gap-3 mt-4 md:flex-row md:items-center">
+                    <!-- Day -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="day" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Day</label>
+                        <select id="day" name="day" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            <option disabled {% if not selected_day %}selected{% endif %}>Select Day</option>
+                            {% for d in days %}
+                            <option value="{{ d }}" {% if selected_day|string == d|string %}selected{% endif %}>{{ d }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Inning -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="inning" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Inning</label>
+                        <select id="inning" name="inning" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            <option disabled {% if not selected_inning %}selected{% endif %}>Select Inning</option>
+                            {% for inn in innings %}
+                            <option value="{{ inn }}" {% if selected_inning|string == inn|string %}selected{% endif %}>{{ inn }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Session -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="session" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Session</label>
+                        <select id="session" name="session" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            <option disabled {% if not selected_session %}selected{% endif %}>Select Session</option>
+                            {% for s in sessions %}
+                            <option value="{{ s }}" {% if selected_session|string == s|string %}selected{% endif %}>{{ s }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                {% endif %}
+
+                <!-- Row 3: Player and Type Filters -->
+                <!-- Row 3: Player and Type Filters -->
+                <div class="flex flex-col gap-3 mt-4 md:flex-row md:items-center">
+                    <!-- Type -->
+                    <div class="relative w-full md:w-1/4">
+                        <label class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Type</label>
+                        <div class="flex gap-4 mt-1">
+                            <label class="inline-flex items-center">
+                                <input type="radio" name="type" value="batter" class="form-radio text-custom-500"
+                                    onchange="this.form.submit()" {% if request.form.get('type', 'batter') == 'batter' %}checked{% endif %}>
+                                <span class="ml-2 text-slate-700 dark:text-zink-100">Batters vs Bowlers</span>
+                            </label>
+                            <label class="inline-flex items-center">
+                                <input type="radio" name="type" value="bowler" class="form-radio text-custom-500"
+                                    onchange="this.form.submit()" {% if request.form.get('type') == 'bowler' %}checked{% endif %}>
+                                <span class="ml-2 text-slate-700 dark:text-zink-100">Bowlers vs Batters</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Dynamic Dropdown Swap Based on Type -->
+                    {% if request.form.get('type', 'batter') == 'batter' %}
+                        <!-- 🏏 Batters Left -->
+                        <div class="relative w-full md:w-1/4">
+                            <label for="batters" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                                Batters
+                            </label>
+                            <select id="batters" name="batters[]" multiple data-choices data-choices-removeItem
+                                class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                                <!-- 🆕 All Batter Filters -->
+                                <option value="All" {% if 'All' in display_selected_batters %}selected{% endif %}>All</option>
+                                <option value="All (RHB)" {% if 'All (RHB)' in display_selected_batters %}selected{% endif %}>All (RHB)</option>
+                                <option value="All (LHB)" {% if 'All (LHB)' in display_selected_batters %}selected{% endif %}>All (LHB)</option>
+
+                                <!-- Individual Batters -->
+                                {% for p in batters %}
+                                    {% set clean_name = p.split(' (')[0] %}
+                                    <option value="{{ clean_name }}" data-label="{{ p }}"
+                                        {% if clean_name in display_selected_batters %}selected{% endif %}>
+                                        {{ p }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- VS -->
+                        <div class="flex items-center justify-center w-full md:w-1/12 text-center text-xl font-semibold text-zinc-600 dark:text-zink-200">
+                            VS
+                        </div>
+
+                        <!-- 🏹 Bowlers Right -->
+                        <div class="relative w-full md:w-1/4">
+                            <label for="bowlers" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                                Bowlers
+                            </label>
+                            <select id="bowlers" name="bowlers[]" multiple data-choices data-choices-removeItem
+                                class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                                <!-- 🆕 All Bowler Filters -->
+                                <option value="All" {% if 'All' in display_selected_bowlers %}selected{% endif %}>All</option>
+                                {% for t in ['RAF', 'RAMF', 'LAF', 'LAMF', 'ROB', 'RALB', 'LAS', 'LAC', 'ROX', 'LOX'] %}
+                                    <option value="All ({{ t }})" {% if 'All (' ~ t ~ ')' in display_selected_bowlers %}selected{% endif %}>
+                                        All ({{ t }})
+                                    </option>
+                                {% endfor %}
+
+                                <!-- Individual Bowlers -->
+                                {% for p in bowlers %}
+                                    {% set clean_name = p.split(' (')[0] %}
+                                    <option value="{{ clean_name }}" data-label="{{ p }}"
+                                        {% if clean_name in display_selected_bowlers %}selected{% endif %}>
+                                        {{ p }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    {% else %}
+                        <!-- 🏹 Bowlers Left -->
+                        <div class="relative w-full md:w-1/4">
+                            <label for="bowlers" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                                Bowlers
+                            </label>
+                            <select id="bowlers" name="bowlers[]" multiple data-choices data-choices-removeItem
+                                class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                                <!-- 🆕 All Bowler Filters -->
+                                <option value="All" {% if 'All' in display_selected_bowlers %}selected{% endif %}>All</option>
+                                {% for t in ['RAF', 'RAMF', 'LAF', 'LAMF', 'ROB', 'RALB', 'LAS', 'LAC', 'ROX', 'LOX'] %}
+                                    <option value="All ({{ t }})" {% if 'All (' ~ t ~ ')' in display_selected_bowlers %}selected{% endif %}>
+                                        All ({{ t }})
+                                    </option>
+                                {% endfor %}
+
+                                <!-- Individual Bowlers -->
+                                {% for p in bowlers %}
+                                    {% set clean_name = p.split(' (')[0] %}
+                                    <option value="{{ clean_name }}" data-label="{{ p }}"
+                                        {% if clean_name in display_selected_bowlers %}selected{% endif %}>
+                                        {{ p }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- VS -->
+                        <div class="flex items-center justify-center w-full md:w-1/12 text-center text-xl font-semibold text-zinc-600 dark:text-zink-200">
+                            VS
+                        </div>
+
+                        <!-- 🏏 Batters Right -->
+                        <div class="relative w-full md:w-1/4">
+                            <label for="batters" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                                Batters
+                            </label>
+                            <select id="batters" name="batters[]" multiple data-choices data-choices-removeItem
+                                class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                                <!-- 🆕 All Batter Filters -->
+                                <option value="All" {% if 'All' in display_selected_batters %}selected{% endif %}>All</option>
+                                <option value="All (RHB)" {% if 'All (RHB)' in display_selected_batters %}selected{% endif %}>All (RHB)</option>
+                                <option value="All (LHB)" {% if 'All (LHB)' in display_selected_batters %}selected{% endif %}>All (LHB)</option>
+
+                                <!-- Individual Batters -->
+                                {% for p in batters %}
+                                    {% set clean_name = p.split(' (')[0] %}
+                                    <option value="{{ clean_name }}" data-label="{{ p }}"
+                                        {% if clean_name in display_selected_batters %}selected{% endif %}>
+                                        {{ p }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    {% endif %}
+
+                    {% if match_format in ['t20', 't20i', 'odi', 'one day', 'one day international'] %}
+                    <!-- Ball Phase (only for limited overs) -->
+                    <div class="relative w-full md:w-1/4">
+                        <label for="ball_phase" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                            Ball Phase
+                        </label>
+                        <select id="ball_phase" name="ball_phase"
+                            class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            <option value="" {% if not selected_ball_phase %}selected{% endif %}>All</option>
+                            <option value="First 10" {% if selected_ball_phase == 'First 10' %}selected{% endif %}>First 10</option>
+                            <option value="Middle Balls" {% if selected_ball_phase == 'Middle Balls' %}selected{% endif %}>Middle Balls</option>
+                            <option value="Last 10" {% if selected_ball_phase == 'Last 10' %}selected{% endif %}>Last 10</option>
+                        </select>
+                    </div>
+                    {% endif %}
+
+                    <!-- Submit Button -->
+                    <div class="w-full md:w-auto mt-4 md:mt-6">
+                        <button type="submit"
+                            class="px-4 py-2 btn bg-custom-500 text-white hover:bg-custom-600 focus:ring focus:ring-custom-200 dark:bg-custom-400 dark:hover:bg-custom-500">
+                            Generate
+                        </button>
+                    </div>
+                </div>
+
+
+            </form>
+        </div>
+    </div>
+</div>
+
+
+<!-- Tabs Strip -->
+<div class="mt-6 border-b border-gray-200 dark:border-zink-600">
+    <ul class="flex flex-wrap -mb-px text-sm font-medium text-center" role="tablist">
+        <li class="mr-2">
+            <button id="tab-players" type="button" class="inline-block px-4 py-2 text-custom-600 border-b-2 border-custom-500 rounded-t-lg active dark:text-custom-300 dark:border-custom-400"
+                onclick="switchTab('players')">
+                Player Vs Player
+            </button>
+        </li>
+        <li class="mr-2">
+            <button id="tab-ballbyball" type="button" class="inline-block px-4 py-2 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                onclick="switchTab('ballbyball')">
+                Ball by Ball
+            </button>
+        </li>
+        <li>
+            <button id="tab-length" type="button" class="inline-block px-4 py-2 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                onclick="switchTab('length')">
+                Line & Length
+            </button>
+        </li>
+        <li>
+            <button id="tab-areawise" type="button" class="inline-block px-4 py-2 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                onclick="switchTab('areawise')">
+                Areawise Report
+            </button>
+        </li>
+        <li>
+            <button id="tab-shottype" type="button" class="inline-block px-4 py-2 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                onclick="switchTab('shottype')">
+                Shot Type
+            </button>
+        </li>
+        <li>
+            <button id="tab-deliverytype" type="button" class="inline-block px-4 py-2 text-slate-500 hover:text-custom-600 border-b-2 border-transparent rounded-t-lg dark:text-zink-300 dark:hover:text-custom-400"
+                onclick="switchTab('deliverytype')">
+                Delivery Type
+            </button>
+        </li>
+    </ul>
+</div>
+
+
+<!-- Tab Content Containers -->
+<div id="tab-content-players" class="mt-4">
+
+    {% if selected_type == "batter" %}
+        {% if 'No Data' in kpi_tables %}
+            <div class="col-span-12 card mt-6" id="no-batter-kpi">
+                <div class="card-body">
+                    <p class="text-center text-slate-600 dark:text-zink-200">
+                        No Batter vs Bowler data available.
+                    </p>
+                </div>
+            </div>
+        {% else %}
+            {% for batter, table_html in kpi_tables.items() %}
+                <div class="col-span-12 card mt-6" id="batter-card-{{ loop.index }}">
+                    <div class="card-header px-4 pt-4 flex justify-between items-center">
+                       
+
+                        <!-- 📌 PDF Button -->
+                        <button onclick="downloadPlayerPDF('{{ batter }}')"
+                                class="px-3 py-1 bg-red-500 text-white rounded-md hover:bg-red-600">
+                            Download PDF
+                        </button>
+                    </div>
+                    <div class="card-body pt-0">
+                        <div class="overflow-x-auto rounded-md border border-gray-200 dark:border-zink-700 p-3 mb-4">
+                            {{ table_html | safe }}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% endif %}
+
+    {% elif selected_type == "bowler" %}
+        {% if 'No Data' in kpi_tables %}
+            <div class="col-span-12 card mt-6" id="no-bowler-kpi">
+                <div class="card-body">
+                    <p class="text-center text-slate-600 dark:text-zink-200">
+                        No Bowler vs Batter data available.
+                    </p>
+                </div>
+            </div>
+        {% else %}
+            {% for bowler, table_html in kpi_tables.items() %}
+                <div class="col-span-12 card mt-6" id="bowler-card-{{ loop.index }}">
+                    <div class="card-header px-4 pt-4 flex justify-between items-center">
+                       
+
+                        <!-- 📌 PDF Button -->
+                        <button onclick="downloadPlayerPDF('{{ bowler }}')"
+                                class="px-3 py-1 bg-red-500 text-white rounded-md hover:bg-red-600">
+                            Download PDF
+                        </button>
+                    </div>
+                    <div class="card-body pt-0">
+                        <div class="overflow-x-auto rounded-md border border-gray-200 dark:border-zink-700 p-3 mb-4">
+                            {{ table_html | safe }}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% endif %}
+
+    {% else %}
+        <div class="col-span-12 card mt-6" id="no-kpi-generic">
+            <div class="card-body">
+                <p class="text-center text-slate-600 dark:text-zink-200">
+                    No KPI data to display.
+                </p>
+            </div>
+        </div>
+    {% endif %}
+</div>
+
+<!-- PDF Download Script -->
+<script>
+function downloadPlayerPDF(playerName) {
+    // open in new tab to trigger PDF download
+    window.open(`/download_pdf/${encodeURIComponent(playerName)}`, "_blank");
+}
+</script>
+
+
+
+
+
+<div id="tab-content-ballbyball" class="hidden mt-4">
+    <div class="col-span-12 card">
+        <div class="card-body">
+            <!-- Filter Buttons -->
+            <div id="ball-by-ball-filters" class="flex flex-wrap gap-2 mb-4">
+                <button data-filter="all" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-custom-500 text-white">All</button>
+                <button data-filter="1" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">1's</button>
+                <button data-filter="2" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">2's</button>
+                <button data-filter="4" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">4's</button>
+                <button data-filter="6" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">6's</button>
+                <button data-filter="wickets" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Wickets</button>
+                <button data-filter="beaten" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Beaten</button>
+                <button data-filter="uncomfortable" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Uncomfortable</button>
+                <button data-filter="wide" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Wide Ball</button>
+                <button data-filter="noball" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">No Ball</button>
+                <button data-filter="last10" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Last 10 Balls</button>
+                <button data-filter="last20" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Last 20 Balls</button>
+                <button data-filter="play-all" class="filter-btn px-3 py-1 text-xs font-medium rounded-md bg-green-500 text-white">Play All</button>
+            </div>
+
+
+            <!-- Ball by Ball Container -->
+            <div id="ball-by-ball-container" class="space-y-2">
+                <!-- Content will be injected by JavaScript -->
+            </div>
+
+            <script id="ball-data" type="application/json">
+                {% if ball_by_ball_details %}{{ ball_by_ball_details | tojson | safe }}{% else %}[]{% endif %}
+            </script>
+
+        </div>
+    </div>
+</div>
+
+
+
+
+
+<div id="tab-content-length" class="hidden mt-4">
+  <div class="col-span-12 card">
+    <div class="card-body">
+      {% if line_length_report %}
+      <div id="line-length-container" class="space-y-6">
+
+        <!-- Skill Filters -->
+        <div id="skill-filters" class="flex flex-wrap justify-center gap-4 mb-4">
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-medium text-slate-600 dark:text-zink-200">Batter:</label>
+            <button data-batter-skill="all" class="skill-btn-batter active-skill-btn px-3 py-1 text-xs font-medium rounded-md bg-custom-500 text-white">All</button>
+            <button data-batter-skill="RHB" class="skill-btn-batter px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">RHB</button>
+            <button data-batter-skill="LHB" class="skill-btn-batter px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">LHB</button>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <label class="text-sm font-medium text-slate-600 dark:text-zink-200">Bowler:</label>
+            <button data-bowler-skill="all" class="skill-btn-bowler active-skill-btn px-3 py-1 text-xs font-medium rounded-md bg-custom-500 text-white">All</button>
+            <button data-bowler-skill="Pace" class="skill-btn-bowler px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Pace</button>
+            <button data-bowler-skill="Spin" class="skill-btn-bowler px-3 py-1 text-xs font-medium rounded-md bg-slate-100 text-slate-700 dark:bg-zink-600 dark:text-zink-100">Spin</button>
+          </div>
+
+          <!-- ✅ Select Metrics Dropdown -->
+          <div class="flex items-center gap-2">
+            <label for="metric" class="text-sm font-medium text-slate-600 dark:text-zink-200">Metrics:</label>
+            <select id="metric" name="metric"
+                    class="form-select text-xs border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100 rounded-md px-2 py-1">
+                <option value="" {% if not request.form.get('metric') %}selected{% endif %}>Default</option>
+                {% if request.form.get('type', 'batter') == 'bowler' %}
+                    <option value="Economy" {% if request.form.get('metric') == 'Economy' %}selected{% endif %}>Economy</option>
+                    <option value="SR Bowler" {% if request.form.get('metric') == 'SR Bowler' %}selected{% endif %}>SR Bowler</option>
+                {% else %}
+                    <option value="Strike Rate" {% if request.form.get('metric') == 'Strike Rate' %}selected{% endif %}>Strike Rate</option>
+                {% endif %}
+                <option value="Dot Ball %" {% if request.form.get('metric') == 'Dot Ball %' %}selected{% endif %}>Dot Ball %</option>
+                <option value="Boundary %" {% if request.form.get('metric') == 'Boundary %' %}selected{% endif %}>Boundary %</option>
+                <option value="Average" {% if request.form.get('metric') == 'Average' %}selected{% endif %}>Average</option>
+                <option value="Balls Per Dismissal" {% if request.form.get('metric') == 'Balls Per Dismissal' %}selected{% endif %}>Balls Per Dismissal</option>
+                <option value="Ball %" {% if request.form.get('metric') == 'Ball %' %}selected{% endif %}>Ball %</option>
+                <option value="Wicket" {% if selected_metric == 'Wicket' %}selected{% endif %}>Wickets</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex flex-col md:flex-row gap-6 justify-center">
+            <!-- Pitch Map with Filters -->
+            <div class="flex-shrink-0">
+              <div id="pitch-map-container" class="relative mx-auto" style="width: 100%; max-width: 340px; aspect-ratio: 17 / 28;">
+                  <img
+                    id="pitch-image"
+                    src="{{ url_for('static', filename='images/our/RightPitch.png') }}"
+                    alt="Cricket Pitch"
+                    class="w-full h-full object-cover rounded-md shadow-md"
+                  >
+                  <div id="pitch-points-container" class="absolute top-0 left-0 w-full h-full">
+                    <!-- Ball images will be injected here -->
+                  </div>
+              </div>
+
+            <div id="pitch-map-filters" class="flex flex-wrap justify-center gap-2 mt-4 max-w-[340px] mx-auto">
+              <button data-filter="all" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md border border-slate-400 bg-slate-200 text-slate-800">All</button>
+              <button data-filter="0" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-white" style="background-color: #800000;">0s</button>
+              <button data-filter="1" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-white" style="background-color: #0000FF;">1s</button>
+              <button data-filter="2" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-black" style="background-color: #FF9999;">2s</button>
+              <button data-filter="3" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-black" style="background-color: #FFE066;">3s</button>
+              <button data-filter="4" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-white" style="background-color: #FFA500;">4s</button>
+              <button data-filter="6" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-black" style="background-color: #00FF00;">6s</button>
+              <button data-filter="W" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md text-white" style="background-color: #FF0000;">Wickets</button>
+              <button id="play-pitch-videos-btn" class="pitch-filter-btn px-3 py-1 text-sm font-medium rounded-md bg-green-500 text-white">Video Play</button>
+            </div>
+          </div>
+
+          <!-- ✅ Zone Heatmap Table (with Display data) -->
+          <!-- <div id="zone-heatmap-container" class="overflow-x-auto flex-grow">
+            <table id="zone-heatmap-table" class="w-full h-full text-xs border-collapse border border-slate-400 dark:border-zink-500">
+              <thead id="zone-heatmap-head" class="bg-slate-100 dark:bg-zink-700"></thead>
+              <tbody id="zone-heatmap-body">
+                {% for box in line_length_report.table_data %}
+                <tr>
+                  <td class="border border-slate-400 dark:border-zink-600 p-1 text-center align-middle">
+                    <div class="text-center text-xs font-medium">
+                      {{ box.Display|safe }}
+                    </div>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div> -->
+
+                    <!-- 🟩 Heatmap (Line × Length) -->
+                    <div id="heatmap-panel" class="w-full md:w-1/2 lg:w-1/3">
+                    <div class="card p-2 h-full">
+                        <div class="card-body">
+                        <h3 class="text-sm font-semibold mb-2">Line × Length Heatmap</h3>
+                        <div id="heatmap-info" class="text-xs text-slate-600 dark:text-zink-300 mb-2"></div>
+
+                        <!-- ✅ Wrapper added to allow horizontal scrolling on small screens -->
+                        <div id="heatmap-wrapper" class="overflow-x-auto" style="width: 100%;">
+                            <div id="heatmap-matrix" style="min-width: 800px; max-width: none;">
+                            <!-- Heatmap table will be injected here by JS -->
+                            </div>
+                        </div>
+
+                        </div>
+                    </div>
+                    </div>
+
+                      
+                      <script>
+                      document.addEventListener('DOMContentLoaded', function () {
+                        const metricEl = document.getElementById('metric');
+                        const heatmapContainer = document.getElementById('heatmap-matrix');
+                        const heatmapInfo = document.getElementById('heatmap-info');
+                      
+                        function collectFilters() {
+                            const metricEl = document.getElementById('metric');
+                            // helper to read a multi-select but ignore 'All' token and falsy values
+                            function readMultiSelect(selectorId) {
+                                const select = document.getElementById(selectorId);
+                                if (!select) return [];
+                                // get selected values (Choices.js or native)
+                                const selected = Array.from(select.querySelectorAll('option:checked')).map(o => String(o.value).trim()).filter(Boolean);
+
+                                // If the only selection is the literal 'All' or an 'All' exists among selections -> expand to all real option values (excluding 'All')
+                                const hasAllToken = selected.some(s => s.toLowerCase() === 'all');
+                                if (hasAllToken) {
+                                    // expand to every option value except the 'All' token itself
+                                    const allVals = Array.from(select.options).map(o => String(o.value).trim()).filter(v => v && v.toLowerCase() !== 'all');
+                                    return allVals;
+                                }
+                                // remove any stray 'All' tokens or 'undefined' strings that might sneak in
+                                return selected.filter(v => v && v.toLowerCase() !== 'all' && v.toLowerCase() !== 'undefined');
+                            }
+
+                            const matchesRaw = readMultiSelect('matches');
+                            // guard: if no explicit matches selected, return empty to indicate none selected
+                            const matches = matchesRaw && matchesRaw.length ? matchesRaw : [];
+
+                            // read quick-skill buttons (batter / bowler) so server can honour them
+                            const activeBatterBtn = document.querySelector('.skill-btn-batter.active-skill-btn');
+                            const activeBowlerBtn = document.querySelector('.skill-btn-bowler.active-skill-btn');
+                            const batterSkill = activeBatterBtn ? (activeBatterBtn.dataset.batterSkill || activeBatterBtn.getAttribute('data-batter-skill')) : null;
+                            const bowlerSkill = activeBowlerBtn ? (activeBowlerBtn.dataset.bowlerSkill || activeBowlerBtn.getAttribute('data-bowler-skill')) : null;
+
+                            const payload = {
+                                metric: metricEl ? metricEl.value : '',
+                                matches: matches,
+                                team: document.querySelector('select[name="team"]')?.value || null,
+                                type: document.querySelector('input[name="type"]:checked')?.value || 'batter',
+                                batters: readMultiSelect('batters'),
+                                bowlers: readMultiSelect('bowlers'),
+                                inning: document.querySelector('select[name="inning"]')?.value || null,
+                                session: document.querySelector('select[name="session"]')?.value || null,
+                                from_over: document.querySelector('input[name="from_over"]')?.value || null,
+                                to_over: document.querySelector('input[name="to_over"]')?.value || null,
+                                phase: document.querySelector('select[name="phase"]')?.value || null,
+                                ball_phase: document.querySelector('select[name="ball_phase"]')?.value || null
+                            };
+
+                            // If quick-skill buttons are used, prefer them (map to tokens server can understand)
+                            try {
+                                if (batterSkill && String(batterSkill).toLowerCase() !== 'all') {
+                                    const s = String(batterSkill).toUpperCase();
+                                    if (s === 'RHB') {
+                                        payload.batters = ['All (RHB)'];
+                                        payload.batter_skill = 'RHB';
+                                    }
+                                    else if (s === 'LHB') {
+                                        payload.batters = ['All (LHB)'];
+                                        payload.batter_skill = 'LHB';
+                                    }
+                                }
+
+                                if (bowlerSkill && String(bowlerSkill).toLowerCase() !== 'all') {
+                                    // prefer an explicit flag, but also include the skill token in bowlers array
+                                    const b = String(bowlerSkill);
+                                    payload.bowler_skill = b;
+                                    // Include as token so older backend code may still match
+                                    payload.bowlers = [b];
+                                }
+                            } catch (e) {
+                                console.warn('collectFilters: quick-skill mapping failed', e);
+                            }
+
+                            return payload;
+                        }
+                      
+                        const lineLabels = ['Way Outside Off','Outside Off','Just Outside Off','Off Stump','Middle Stump','Leg Stump','Outside Leg'];
+                        const lengthLabels = ['Fulltoss', 'Yorker', 'Full Length', 'Overpitch', 'Good Length', 'Short of Good', 'Short Pitch'];
+                      
+                        function renderHeatmapTable(hmData, totals) { 
+                            heatmapContainer.innerHTML = '';
+            
+                            const table = document.createElement('table');
+                            table.id = 'heatmap-table';  // server heatmap table id (distinct from container)
+                            table.className = 'w-full text-xs border-collapse';
+                            table.style.tableLayout = 'fixed';
+                            table.style.width = '100%';
+            
+                            const thead = document.createElement('thead');
+                            const trh = document.createElement('tr');
+                            trh.innerHTML = `<th class="p-1 border"></th>`;
+                            lineLabels.forEach(l => {
+                                const th = document.createElement('th');
+                                th.className = 'p-1 border text-center';
+                                th.textContent = l;
+                                trh.appendChild(th);
+                            });
+                            thead.appendChild(trh);
+                            table.appendChild(thead);
+            
+                            const tbody = document.createElement('tbody');
+
+                            // ✅ Compute totals per Length (Y-axis)
+                            const totalsByLength = {};
+                            let totalBallsAll = 0;
+                            Object.keys(hmData || {}).forEach(k => {
+                                const [len, line] = k.split('-');
+                                const d = hmData[k];
+                                if (!d) return;
+                                const runs = Number(d.runs) || 0;
+                                const balls = Number(d.balls) || 0;
+                                const wickets = Number(d.wickets) || 0;
+                                const boundaries = Number(d.boundaries) || 0;
+                                const dots = Number(d.dots) || 0;
+
+                                totalBallsAll += balls;
+
+                                if (!totalsByLength[len])
+                                    totalsByLength[len] = { runs: 0, balls: 0, wickets: 0, boundaries: 0, dots: 0 };
+
+                                totalsByLength[len].runs += runs;
+                                totalsByLength[len].balls += balls;
+                                totalsByLength[len].wickets += wickets;
+                                totalsByLength[len].boundaries += boundaries;
+                                totalsByLength[len].dots += dots;
+                            });
+
+                            const selectedMetric = (document.getElementById("metric")?.value || "").trim();
+                            Object.keys(totalsByLength).forEach(length => {
+                                const L = totalsByLength[length];
+                                let val = 0;
+                                switch (selectedMetric) {
+                                    case "Economy":
+                                        val = L.balls ? (L.runs / (L.balls / 6)).toFixed(2) : 0;
+                                        break;
+                                    case "Strike Rate":
+                                        val = L.balls ? ((L.runs / L.balls) * 100).toFixed(2) : 0;
+                                        break;
+                                    case "Dot Ball %":
+                                        val = L.balls ? ((L.dots / L.balls) * 100).toFixed(2) : 0;
+                                        break;
+                                    case "Boundary %":
+                                        val = L.balls ? ((L.boundaries / L.balls) * 100).toFixed(2) : 0;
+                                        break;
+                                    case "Average":
+                                        val = L.wickets ? (L.runs / L.wickets).toFixed(2) : 0;
+                                        break;
+                                    case "Balls Per Dismissal":
+                                        val = L.wickets ? (L.balls / L.wickets).toFixed(2) : 0;
+                                        break;
+                                    case "Ball %":
+                                        val = totalBallsAll ? ((L.balls / totalBallsAll) * 100).toFixed(2) : 0;
+                                        break;
+                                    case "Wicket":
+                                        val = L.wickets;
+                                        break;
+                                    default:
+                                        val = L.runs;
+                                }
+                                L.metric_value = val;
+                            });
+
+                                function formatLengthLabel(label, L) {
+                                    if (!L) return label;
+                                    const val = L.metric_value ?? 0;
+                                    switch (selectedMetric) {
+                                        case "SR Bowler":
+                                            // Show SR only if wickets > 0, else just the label
+                                            return (L.wickets > 0) ? `${label} (SR: ${(L.balls / L.wickets).toFixed(2)})` : label;
+                                        case "Economy": return `${label} (Eco ${val})`;
+                                        case "Strike Rate": return `${label} (SR ${val})`;
+                                        case "Dot Ball %": return `${label} (Dot% ${val})`;
+                                        case "Boundary %": return `${label} (Bound% ${val})`;
+                                        case "Average": return `${label} (Avg ${val})`;
+                                        case "Balls Per Dismissal": return `${label} (BPD ${val})`;
+                                        case "Ball %": return `${label} (Ball% ${val})`;
+                                        case "Wicket": return `${label} (${val} Wkts)`;
+                                        default: return `${label} (${val})`;
+                                    }
+                                }
+            
+                            lengthLabels.forEach(len => {
+                                const tr = document.createElement('tr');
+                                const th = document.createElement('th');
+                                th.className = 'p-1 border text-xs';
+                                const L = totalsByLength[len];
+                                th.textContent = formatLengthLabel(len, L);
+                                tr.appendChild(th);
+            
+                                lineLabels.forEach(line => {
+                                    const key = `${len}-${line}`;
+                                    const cell = document.createElement('td');
+                                    cell.className = 'p-1 border align-top text-center';
+                                    cell.style.height = '64px';
+                                    cell.style.overflow = 'hidden';
+            
+                                    const d = (hmData && hmData[key]) ? hmData[key] : null;
+            
+                                    if (!d || (!d.balls && !d.runs && !d.wickets && !d.boundaries)) {
+                                        cell.style.background = 'none';
+                                        cell.style.backgroundColor = 'transparent';
+                                        cell.innerHTML = '';
+                                        tr.appendChild(cell);
+                                        return;
+                                    }
+            
+                                    const isMetricMode = d.metric_value !== null && d.display_text?.includes('<br>');
+            
+                                    if (isMetricMode && (!d.metric_value || d.metric_value === 0)) {
+                                        cell.style.background = 'none';
+                                        cell.style.backgroundColor = 'transparent';
+                                        cell.innerHTML = '';
+                                        tr.appendChild(cell);
+                                        return;
+                                    }
+            
+                                    const inner = document.createElement('div');
+                                    inner.className = 'text-xs';
+                                    // Compute and show Economy for each cell
+                                    if (selectedMetric === 'Economy') {
+                                        // Economy = runs / (balls/6), if balls > 0
+                                        let eco = (d.balls && d.balls > 0) ? (d.runs / (d.balls / 6)).toFixed(2) : '';
+                                        inner.innerHTML = eco ? `Eco<br>${eco}` : '';
+                                    } else if (selectedMetric === 'Strike Rate' && d.metric_value !== undefined && d.metric_value !== null) {
+                                        inner.innerHTML = `SR<br>${d.metric_value}`;
+                                    } else {
+                                        inner.innerHTML = d.display_text || '';
+                                    }
+            
+                                    if (selectedMetric === 'SR Bowler') {
+                                        if (!d.wickets || !d.balls || !d.metric_value) {
+                                            cell.style.background = 'none';
+                                            cell.style.backgroundColor = 'transparent';
+                                        } else {
+                                            const mv = Number(d.metric_value);
+                                            const base = totals && totals.runs ? totals.runs : totals.total_runs || 1;
+                                            const alpha = Math.min(0.85, 0.12 + (mv / Math.max(1, base)));
+                                            cell.style.backgroundColor = `rgba(34,197,94,${alpha})`;
+                                        }
+                                    } else {
+                                        if ((!d.runs && !d.wickets && !d.boundaries && !d.balls) || d.metric_value === 0) {
+                                            cell.style.background = 'none';
+                                            cell.style.backgroundColor = 'transparent';
+                                        } else {
+                                            const mv = Number(d.metric_value || d.runs || 0);
+                                            const base = totals && totals.runs ? totals.runs : totals.total_runs || 1;
+                                            const alpha = Math.min(0.85, 0.12 + (mv / Math.max(1, base)));
+                                            cell.style.backgroundColor = `rgba(34,197,94,${alpha})`;
+                                        }
+                                    }
+            
+                                    if ((d.wickets || 0) > 0) {
+                                        cell.style.border = '2px solid rgba(239,68,68,0.9)';
+                                    }
+            
+                                    // ✅ Assign zone identifier for click detection
+                                    cell.dataset.zone = key;  
+            
+                                    cell.appendChild(inner);
+                                    tr.appendChild(cell);
+                                });
+            
+                                tbody.appendChild(tr);
+                            });
+            
+                            table.appendChild(tbody);
+                            heatmapContainer.appendChild(table);
+            
+                            if (totals) {
+                                const totalBalls = totals.balls || totals.total_balls || 0;
+                                const totalRuns = totals.runs || totals.total_runs || 0;
+                                heatmapInfo.innerHTML = `Total balls: ${totalBalls} • Total runs: ${totalRuns}`;
+                            } else {
+                                heatmapInfo.innerHTML = '';
+                            }
+            
+                            // ✅ Attach click handlers at the very end (bind to server table id)
+                            attachHeatmapClickHandlers(document.getElementById('metric')?.value || '');
+                        }
+
+            
+                            function getLineZone(x) {
+                            x = Number(x);
+                            if (isNaN(x)) return null;
+                            if (x < 50) return 'Way Outside Off';
+                            if (x < 70) return 'Outside Off';
+                            if (x < 80) return 'Just Outside Off';
+                            if (x < 84) return 'Off Stump';
+                            if (x < 88) return 'Middle Stump';
+                            if (x < 95) return 'Leg Stump';
+                            return 'Outside Leg';
+                            }
+            
+                            function getLengthZone(y) {
+                            y = Number(y) / 2;
+                            if (isNaN(y)) return null;
+                            if (y < 93) return 'Fulltoss';
+                            if (y < 107.5) return 'Yorker';
+                            if (y < 128) return 'Full Length';
+                            if (y < 150.5) return 'Overpitch';
+                            if (y < 177) return 'Good Length';
+                            if (y < 205) return 'Short of Good';
+                            return 'Short Pitch';
+                            }
+            
+                            // ----- Replace your existing attachHeatmapClickHandlers function with this -----
+                            // function attachHeatmapClickHandlers(selectedMetric) {
+                            // const cells = document.querySelectorAll('#heatmap-matrix td[data-zone]');
+                            // if (!cells || !cells.length) return;
+            
+                            // cells.forEach(cell => {
+                            //     cell.style.cursor = 'pointer';
+                            //     cell.addEventListener('click', () => {
+                            //     const zone = cell.dataset.zone;
+                            //     const displayText = cell.innerText.trim();
+                            //     const metric = selectedMetric || (document.getElementById('metric')?.value || '');
+            
+                            //     // Get balls in this zone
+                            //     let balls = (window.currentPitchMapPoints || []).filter(b => {
+                            //         const x = Number(b.scrM_PitchX), y = Number(b.scrM_PitchY);
+                            //         const line = getLineZone(x), length = getLengthZone(y);
+                            //         return `${length}-${line}` === zone;
+                            //     });
+            
+                            //     if (!balls.length) {
+                            //         alert('No balls found for this zone.');
+                            //         return;
+                            //     }
+            
+                            //     // If a metric is selected, apply additional filtering (your existing logic)
+                            //     // --- Metric-specific filtering ---
+                            //     let filteredBalls = balls;
+                            //     if (metric && metric.toLowerCase() === 'wicket') {
+                            //     // keep only actual wicket deliveries
+                            //     filteredBalls = balls.filter(b =>
+                            //         Number(b.scrM_IsWicket) === 1 ||
+                            //         Number(b.is_wicket) === 1 ||
+                            //         Number(b.scrM_IsWicketBall) === 1 ||
+                            //         (b.scrM_WicketType && String(b.scrM_WicketType).trim() !== '' &&
+                            //         String(b.scrM_WicketType).toLowerCase() !== 'none')
+                            //     );
+                            //     }
+            
+            
+                            //     // Collect actual video file URLs from the filtered balls (prefer scrM_Video{n}URL)
+                            //     const videoFiles = [];
+                            //     filteredBalls.forEach(b => {
+                            //         for (let i = 1; i <= 6; i++) {
+                            //         const f1 = b[`scrM_Video${i}URL`];
+                            //         const f2 = b[`scrM_Video${i}Url`];
+                            //         if (f1) { videoFiles.push(f1); break; }
+                            //         if (f2) { videoFiles.push(f2); break; }
+                            //         }
+                            //         // fallback video fields
+                            //         if (!videoFiles.length || videoFiles[videoFiles.length-1] == null) {
+                            //         const fb = b.video_url || b.scrM_VideoFile || b.scrM_Video1URL || b.scrM_Video1Url || b.video || null;
+                            //         if (fb) videoFiles.push(fb);
+                            //         }
+                            //     });
+            
+                            //     // De-duplicate
+                            //     const uniqVideoFiles = [...new Set(videoFiles.filter(Boolean))];
+            
+                            //     // If we have video URLs -> resolve them and open /video_player?videos=url1,url2,...
+                            //     if (uniqVideoFiles.length > 0) {
+                            //         const videoUrls = uniqVideoFiles.map(resolveVideoUrl);
+                            //         const params = new URLSearchParams();
+                            //         params.append('videos', videoUrls.join(','));
+                            //         // optionally include metadata
+                            //         params.append('metric', metric || '');
+                            //         params.append('zone', zone);
+                            //         window.open(`/video_player?${params.toString()}`, '_blank');
+                            //         return;
+                            //     }
+            
+                            //     // If no video URLs but we have delivery ids -> if single delivery id, call del_id
+                            //     const delIds = filteredBalls.map(b => b.scrM_DelId || b.scrM_DelID || b.scrM_BallID || b.scrM_BallId || b.id || b.ball_id).filter(Boolean);
+            
+                            //     if (delIds.length === 1) {
+                            //         const params = new URLSearchParams();
+                            //         params.append('del_id', String(delIds[0]));
+                            //         window.open(`/video_player?${params.toString()}`, '_blank');
+                            //         return;
+                            //     }
+            
+                            //     // If multiple delivery ids exist but no direct URLs, try to open first delivery as fallback
+                            //     if (delIds.length > 1) {
+                            //         // Best-effort: open video for first delivery id
+                            //         const params = new URLSearchParams();
+                            //         params.append('del_id', String(delIds[0]));
+                            //         params.append('zone', zone);
+                            //         window.open(`/video_player?${params.toString()}`, '_blank');
+                            //         return;
+                            //     }
+            
+                            //     alert('No video files or delivery identifiers found for this zone.');
+                            //     });
+                            // });
+                            // }
+
+                            function attachHeatmapClickHandlers(selectedMetric) {
+
+                            // ✅ target the python heatmap table
+                            // IMPORTANT: update this selector to whatever your table id is
+                            // you said python table uses td[data-zone] so we bind on the table wrapper
+                            const table =
+                                document.querySelector('#heatmap-table') ||
+                                document.querySelector('#heatmap-matrix') ||
+                                document.querySelector('#heatmap-table-container') ||
+                                document.querySelector('table'); // last fallback
+
+                            if (!table) {
+                                console.warn("❌ Heatmap table not found for click binding");
+                                return;
+                            }
+
+                            // ✅ prevent multiple bindings
+                            if (table.dataset.clickBound === "1") {
+                                console.log("⚠️ Heatmap click already bound, skipping");
+                                return;
+                            }
+                            table.dataset.clickBound = "1";
+
+                            console.log("✅ Python Heatmap click handler attached");
+
+                            // --------------------------
+                            // Helpers
+                            // --------------------------
+
+                            // ✅ normalize metric label
+                            function normalizeMetric(metric) {
+                                const m = String(metric || "").trim().toLowerCase();
+
+                                if (!m) return "";
+
+                                // map variations
+                                if (m === "wickets" || m === "wkts") return "wicket";
+                                if (m === "dot balls" || m === "dots") return "dot";
+                                if (m === "fours" || m === "4") return "four";
+                                if (m === "sixes" || m === "6") return "six";
+                                if (m === "runs scored" || m === "total runs") return "runs";
+
+                                return m;
+                            }
+
+                            // ✅ line zone from x
+                            function getLineZone(x) {
+                                // Update these boundaries ONLY if your python heatmap mapping differs
+                                // (these are typical cricket pitch line buckets)
+                                if (x < 1.5) return "Wide Outside Off";
+                                if (x < 3.0) return "Outside Off";
+                                if (x < 4.5) return "Off Stump";
+                                if (x < 6.0) return "Middle Stump";
+                                if (x < 7.5) return "Leg Stump";
+                                return "Down Leg";
+                            }
+
+                            // ✅ length zone from y
+                            function getLengthZone(y) {
+                                // Update these boundaries ONLY if your python heatmap mapping differs
+                                if (y < 1.0) return "Full Toss";
+                                if (y < 2.0) return "Yorker";
+                                if (y < 3.2) return "Full Length";
+                                if (y < 4.4) return "Over Pitch";
+                                if (y < 5.6) return "Good Length";
+                                if (y < 6.8) return "Short of GL";
+                                return "Short Pitch";
+                            }
+
+                            // ✅ extract best video url (from 1..6)
+                            function pickVideoUrl(ball) {
+                                for (let i = 1; i <= 6; i++) {
+                                const url = ball?.[`scrM_Video${i}URL`] || ball?.[`scrM_Video${i}Url`];
+                                if (url && String(url).trim() !== "") {
+                                    return String(url).trim();
+                                }
+                                }
+
+                                // some DBs use scrM_VideoFile
+                                if (ball?.scrM_VideoFile && String(ball.scrM_VideoFile).trim() !== "") {
+                                return String(ball.scrM_VideoFile).trim();
+                                }
+
+                                return null;
+                            }
+
+                            // ✅ extract delivery/ball id (fallback)
+                            function pickBallId(ball) {
+                                return (
+                                ball?.scrM_BallID ||
+                                ball?.scrM_BallId ||
+                                ball?.scrM_DelId ||
+                                ball?.scrM_DelID ||
+                                ball?.del_id ||
+                                ball?.ball_id ||
+                                ball?.id ||
+                                null
+                                );
+                            }
+
+                            // ✅ map a ball into a zoneKey if zone_key missing
+                            function computeZoneKeyFromCoords(ball) {
+                                const xRaw =
+                                ball?.scrM_PitchX ??
+                                ball?.scrM_PitchXPos ??
+                                ball?.scrM_BatPitchX ??
+                                ball?.scrM_BatPitchXPos;
+
+                                const yRaw =
+                                ball?.scrM_PitchY ??
+                                ball?.scrM_PitchYPos ??
+                                ball?.scrM_BatPitchY ??
+                                ball?.scrM_BatPitchYPos;
+
+                                const x = Number(xRaw);
+                                const y = Number(yRaw);
+
+                                if (!isFinite(x) || !isFinite(y)) return null;
+
+                                const line = getLineZone(x);
+                                const length = getLengthZone(y);
+
+                                return `${length}-${line}`;
+                            }
+
+                            // ✅ metric filter on balls
+                            function applyMetricFilter(balls, metricNorm) {
+                                if (!metricNorm) return balls;
+
+                                if (metricNorm === "wicket") {
+                                return balls.filter(b =>
+                                    Number(b?.is_wicket) === 1 ||
+                                    Number(b?.scrM_IsWicket) === 1 ||
+                                    Number(b?.scrM_IsWicketBall) === 1
+                                );
+                                }
+
+                                if (metricNorm === "four") {
+                                return balls.filter(b =>
+                                    Number(b?.scrM_IsBoundry) === 1 ||
+                                    Number(b?.is_four) === 1 ||
+                                    Number(b?.is_boundary) === 1 ||
+                                    Number(b?.scrM_BatsmanRuns) === 4
+                                );
+                                }
+
+                                if (metricNorm === "six") {
+                                return balls.filter(b =>
+                                    Number(b?.scrM_IsSixer) === 1 ||
+                                    Number(b?.is_six) === 1 ||
+                                    Number(b?.scrM_BatsmanRuns) === 6
+                                );
+                                }
+
+                                if (metricNorm === "dot") {
+                                return balls.filter(b => Number(b?.scrM_BatsmanRuns || 0) === 0);
+                                }
+
+                                // runs = no filtering (all balls already)
+                                return balls;
+                            }
+
+                            // --------------------------
+                            // Main click binding
+                            // --------------------------
+                            table.addEventListener("click", (e) => {
+                                const cell = e.target.closest("td[data-zone]");
+                                if (!cell) return;
+
+                                const zoneKey = String(cell.dataset.zone || "").trim();
+                                if (!zoneKey) return;
+
+                                const metric =
+                                selectedMetric ||
+                                (document.getElementById("metric")?.value || "");
+
+                                const metricNorm = normalizeMetric(metric);
+
+                                console.log("✅ Clicked Python Heatmap zone:", zoneKey, "| Metric:", metricNorm);
+
+                                // ✅ Step 1: Pick balls using true zone_key OR compute it from coords
+                                const points = window.currentPitchMapPoints || [];
+
+                                let balls = points.filter(b => {
+                                const z = String(b?.zone_key || b?.Zone || b?.ZoneName || "").trim();
+                                if (z && z === zoneKey) return true;
+
+                                const computed = computeZoneKeyFromCoords(b);
+                                return computed === zoneKey;
+                                });
+
+                                console.log("✅ Balls found in zone:", balls.length);
+
+                                if (!balls.length) {
+                                alert("No balls found for this zone.");
+                                return;
+                                }
+
+                                // ✅ Step 2: Apply metric filter (if selected)
+                                const filteredBalls = applyMetricFilter(balls, metricNorm);
+
+                                console.log("✅ Balls after metric filter:", filteredBalls.length);
+
+                                if (!filteredBalls.length) {
+                                alert("No balls found for this zone with selected metric.");
+                                return;
+                                }
+
+                                // ✅ Step 3: Collect video URLs
+                                const videoUrls = [];
+                                filteredBalls.forEach(b => {
+                                const url = pickVideoUrl(b);
+                                if (url) videoUrls.push(url);
+                                });
+
+                                const uniqVideoUrls = [...new Set(videoUrls.filter(Boolean))];
+
+                                // ✅ Open via video URLs (best)
+                                if (uniqVideoUrls.length > 0) {
+                                console.log("🎥 Opening videos (URLs):", uniqVideoUrls.length);
+
+                                // ✅ If you have this helper in your project, use it (recommended)
+                                if (typeof openVideoPlayerViaPost === "function") {
+                                    openVideoPlayerViaPost(uniqVideoUrls, {
+                                    zone: zoneKey,
+                                    metric: metricNorm
+                                    });
+                                    return;
+                                }
+
+                                // fallback old GET method
+                                const params = new URLSearchParams();
+                                params.append("videos", uniqVideoUrls.join(","));
+                                params.append("zone", zoneKey);
+                                params.append("metric", metricNorm || "");
+
+                                window.open(`/video_player?${params.toString()}`, "_blank");
+                                return;
+                                }
+
+                                // ✅ Step 4: Fallback to delivery IDs
+                                const delIds = filteredBalls
+                                .map(b => pickBallId(b))
+                                .filter(Boolean);
+
+                                const uniqDelIds = [...new Set(delIds)];
+
+                                console.log("✅ Delivery IDs found:", uniqDelIds.length);
+
+                                if (!uniqDelIds.length) {
+                                alert("No video URLs or delivery ids found for this zone.");
+                                return;
+                                }
+
+                                // ✅ Open via POST helper if available
+                                if (typeof openVideoPlayerViaPost === "function") {
+                                openVideoPlayerViaPost([], {
+                                    balls: uniqDelIds,
+                                    zone: zoneKey,
+                                    metric: metricNorm
+                                });
+                                return;
+                                }
+
+                                // fallback old GET method
+                                const params = new URLSearchParams();
+                                params.append("balls", uniqDelIds.join(","));
+                                params.append("zone", zoneKey);
+                                params.append("metric", metricNorm || "");
+
+                                window.open(`/video_player?${params.toString()}`, "_blank");
+                            });
+                            }
+
+
+            
+            
+            
+                            
+                            async function fetchAndRenderHeatmap() {
+                            const payload = collectFilters();
+            
+                            // 🧩 Detect format (try hidden field, dropdown, or global var)
+                            let format = '';
+                            const formatEl = document.getElementById('format') || document.querySelector('select[name="format"]');
+                            if (formatEl && formatEl.value) {
+                                format = String(formatEl.value).trim().toUpperCase();
+                            } else if (window.selectedFormat) {
+                                format = String(window.selectedFormat).trim().toUpperCase();
+                            }
+            
+                            // ✅ Default to T20 if unknown (safe fallback)
+                            if (!['T10', 'T20', 'ODI'].includes(format)) format = 'T20';
+            
+                            // ✅ Handle Phase filter dynamically by format
+                            const phaseSelect = document.querySelector('select[name="phase"]');
+                            if (phaseSelect && phaseSelect.value) {
+                                const phaseVal = phaseSelect.value.trim().toLowerCase();
+            
+                                // Default ranges (T20)
+                                let ranges = { powerplay: [1, 6], middle: [7, 15], slog: [16, 20], all: [1, 20] };
+            
+                                if (format === 'ODI') {
+                                    ranges = { powerplay: [1, 10], middle: [11, 40], slog: [41, 50], all: [1, 50] };
+                                } else if (format === 'T10') {
+                                    ranges = { powerplay: [1, 3], middle: [4, 7], slog: [8, 10], all: [1, 10] };
+                                }
+            
+                                // 🌐 Only apply phase-based overs if manual inputs are empty
+                                const fromInput = document.querySelector('input[name="from_over"]');
+                                const toInput = document.querySelector('input[name="to_over"]');
+                                const fromVal = fromInput && fromInput.value ? Number(fromInput.value) : null;
+                                const toVal = toInput && toInput.value ? Number(toInput.value) : null;
+            
+                                if (fromVal && toVal) {
+                                    // ✅ Manual range overrides phase
+                                    payload.from_over = fromVal;
+                                    payload.to_over = toVal;
+                                } else if (phaseVal.includes('power')) {
+                                    payload.from_over = ranges.powerplay[0];
+                                    payload.to_over = ranges.powerplay[1];
+                                } else if (phaseVal.includes('middle')) {
+                                    payload.from_over = ranges.middle[0];
+                                    payload.to_over = ranges.middle[1];
+                                } else if (phaseVal.includes('slog') || phaseVal.includes('death')) {
+                                    payload.from_over = ranges.slog[0];
+                                    payload.to_over = ranges.slog[1];
+                                } else if (phaseVal.includes('all')) {
+                                    payload.from_over = null;
+                                    payload.to_over = null;
+                                } else {
+                                    payload.from_over = null;
+                                    payload.to_over = null;
+                                }
+                            } else {
+                                // No phase selected but manual inputs exist
+                                const fromInput = document.querySelector('input[name="from_over"]');
+                                const toInput = document.querySelector('input[name="to_over"]');
+                                const fromVal = fromInput && fromInput.value ? Number(fromInput.value) : null;
+                                const toVal = toInput && toInput.value ? Number(toInput.value) : null;
+                                if (fromVal && toVal) {
+                                    payload.from_over = fromVal;
+                                    payload.to_over = toVal;
+                                }
+                            }
+            
+                            // ✅ Expand "All" matches (unchanged from before)
+                            const matchSelect = document.getElementById("matches");
+                            let allOptions = [];
+                            if (matchSelect) {
+                                allOptions = Array.from(matchSelect.options)
+                                    .map(o => o.value.trim())
+                                    .filter(v => v && v.toLowerCase() !== "all" && v.toLowerCase() !== "undefined");
+            
+                                const selected = Array.from(matchSelect.selectedOptions || []).map(o => o.value.trim());
+                                const hasAll = selected.some(v => v.toLowerCase() === "all");
+            
+                                if (hasAll) {
+                                    payload.matches = allOptions;
+                                } else if (selected.length > 0) {
+                                    payload.matches = selected.filter(v => v && v.toLowerCase() !== "undefined");
+                                } else {
+                                    payload.matches = allOptions;
+                                }
+                            }
+            
+                            if (!payload.matches || payload.matches.length === 0) {
+                                payload.matches = ["All"];
+                            }
+            
+                            try {
+                                // Immediately show a lightweight loading state and hide previous heatmap to avoid flash
+                                heatmapContainer.dataset.loading = '1';
+                                heatmapContainer.style.opacity = '0.45';
+                                heatmapContainer.innerHTML = '<div class="text-xs text-slate-400">Loading heatmap…</div>';
+
+                                const res = await fetch("/apps/heatmap_matrix", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify(payload),
+                                });
+            
+                                const data = await res.json();
+            
+                                if (!data || !data.heatmap_data || Object.keys(data.heatmap_data).length === 0) {
+                                    heatmapContainer.innerHTML = '<div class="text-xs text-slate-500">No heatmap data found for the selected filters.</div>';
+                                    heatmapInfo.innerHTML = "";
+                                    heatmapContainer.dataset.loading = '0';
+                                    heatmapContainer.style.opacity = '1';
+                                    return;
+                                }
+            
+                                // ✅ Store global pitch points for video linking
+                                window.currentPitchMapPoints = data.pitch_points || [];
+                                // render and then restore visibility
+                                renderHeatmapTable(data.heatmap_data, data.totals || {});
+                                heatmapContainer.dataset.loading = '0';
+                                heatmapContainer.style.opacity = '1';
+                            } catch (e) {
+                                console.error("Failed to fetch heatmap_matrix", e);
+                                heatmapContainer.innerHTML =
+                                    '<div class="text-xs text-red-500">Failed to load heatmap data.</div>';
+                            }
+                        }
+                      
+                        // expose and call fetchAndRenderHeatmap
+                        try { window.fetchAndRenderHeatmap = fetchAndRenderHeatmap; } catch(e) { /* ignore */ }
+                        if (metricEl) metricEl.addEventListener("change", fetchAndRenderHeatmap);
+                        fetchAndRenderHeatmap();
+                      });
+
+                      </script>
+                      
+                      <script id="ball-data" type="application/json">
+                        {{ ball_data | tojson | safe }}
+                      </script>
+                      
+                      <script id="line-length-data" type="application/json">
+                        {{ line_length_report | tojson | safe }}
+                      </script>
+                      
+                      <script>
+                      document.addEventListener("DOMContentLoaded", function() {
+                        const ballDataEl = document.getElementById("ball-data");
+                        const heatmapHead = document.querySelector("#zone-heatmap-table thead");
+                        const heatmapBody = document.querySelector("#zone-heatmap-table tbody");
+                        const metricSelect = document.getElementById("metric");
+                      
+                        window.baseBalls = [];
+                        try {
+                          window.baseBalls = ballDataEl && ballDataEl.textContent ? JSON.parse(ballDataEl.textContent) : [];
+                        } catch (e) {
+                          console.error("Failed to parse ball-data JSON:", e);
+                        }
+                      
+                        window.pointsContainer = document.getElementById('pitch-points-container');
+                      
+                        const lineLabels = ['Way Outside Off','Outside Off','Just Outside Off','Off Stump','Middle Stump','Leg Stump','Outside Leg'];
+                        const lengthLabels = ['Fulltoss', 'Yorker', 'Full Length', 'Overpitch', 'Good Length', 'Short of Good', 'Short Pitch'];
+                      
+                        function getLineZone(x) {
+                          x = Number(x);
+                          if (isNaN(x)) return null;
+                          if (x < 50) return 'Way Outside Off';
+                          if (x < 70) return 'Outside Off';
+                          if (x < 80) return 'Just Outside Off';
+                          if (x < 84) return 'Off Stump';
+                          if (x < 88) return 'Middle Stump';
+                          if (x < 95) return 'Leg Stump';
+                          return 'Outside Leg';
+                        }
+                      
+                                                function getLengthZone(y) {
+                                                    y = Number(y) / 2;
+                                                    if (isNaN(y)) return null;
+                                                    if (y < 93) return 'Fulltoss';
+                                                    if (y < 107.5) return 'Yorker';
+                                                    if (y < 128) return 'Full Length';
+                                                    if (y < 150.5) return 'Overpitch';
+                                                    if (y < 177) return 'Good Length';
+                                                    if (y < 205) return 'Short of Good';
+                                                    return 'Short Pitch';
+                                                }
+                      
+                                                // Client-side computeHeatmap disabled — use server-generated heatmap only.
+                                                function computeHeatmap() {
+                                                    console.warn('computeHeatmap disabled — using server heatmap');
+                                                    return {};
+                                                }
+                      
+                                                // Client-side updateExistingHeatmapTable disabled to avoid double-rendering.
+                                                function updateExistingHeatmapTable() {
+                                                    console.warn('updateExistingHeatmapTable disabled — server heatmap only');
+                                                }
+                      
+                        if (metricSelect) {
+                        // Client-side metric-based heatmap update disabled.
+                        // Metrics will trigger server fetch (fetchAndRenderHeatmap) in the upper scope; keep this handler as a no-op.
+                        metricSelect.addEventListener('change', function () {
+                            console.debug('metric change: client-side heatmap update disabled. Server fetch will run instead.');
+                        });
+                        }
+
+                      
+                                                // Client-side initial heatmap rendering disabled: server will render the canonical heatmap via fetchAndRenderHeatmap().
+                      });
+                      </script>
+            
+        </div>
+      </div>
+
+        <script id="ball-data" type="application/json">
+        {{ ball_data | tojson | safe }}
+        </script>
+
+        <script id="line-length-data" type="application/json">
+        {{ line_length_report | tojson | safe }}
+        </script>
+
+        <script>
+            document.addEventListener("DOMContentLoaded", function() {
+            const ballDataEl = document.getElementById("ball-data");
+            const heatmapHead = document.querySelector("#zone-heatmap-table thead");
+            const heatmapBody = document.querySelector("#zone-heatmap-table tbody");
+            const metricSelect = document.getElementById("metric");
+
+            // make baseBalls & pointsContainer global so plotPoints() and other handlers can access them
+            window.baseBalls = [];
+            try {
+            window.baseBalls = ballDataEl && ballDataEl.textContent ? JSON.parse(ballDataEl.textContent) : [];
+            } catch (e) {
+            console.error("Failed to parse ball-data JSON:", e);
+            }
+
+            // ensure a global pointsContainer used by plotPoints()
+            window.pointsContainer = document.getElementById('pitch-points-container');
+
+
+            const lineLabels = ['Way Outside Off','Outside Off','Just Outside Off','Off Stump','Middle Stump','Leg Stump','Outside Leg'];
+            const lengthLabels = ['Fulltoss', 'Yorker', 'Full Length', 'Overpitch', 'Good Length', 'Short of Good', 'Short Pitch'];
+
+            function getLineZone(x) {
+                x = Number(x);
+                if (isNaN(x)) return null;
+                if (x < 50) return 'Way Outside Off';
+                if (x < 70) return 'Outside Off';
+                if (x < 80) return 'Just Outside Off';
+                if (x < 84) return 'Off Stump';
+                if (x < 88) return 'Middle Stump';
+                if (x < 95) return 'Leg Stump';
+                return 'Outside Leg';
+            }
+
+            function getLengthZone(y) {
+                y = Number(y) / 2;
+                if (isNaN(y)) return null;
+                if (y < 93) return 'Fulltoss';
+                if (y < 107.5) return 'Yorker';
+                if (y < 128) return 'Full Length';
+                if (y < 150.5) return 'Overpitch';
+                if (y < 177) return 'Good Length';
+                if (y < 205) return 'Short of Good';
+                return 'Short Pitch';
+            }
+
+            // ✅ Improved batter skill matcher
+            function batterMatches(rowSkill, filterSkill) {
+                if (!filterSkill || filterSkill.toLowerCase() === 'all') return true;
+                if (!rowSkill) return false;
+                const s = String(rowSkill).toUpperCase();
+                const f = String(filterSkill).toUpperCase();
+                if (s.includes(`(${f})`) || s.includes(f)) return true;
+                if (f === 'RHB' && (s.includes('RIGHT') || s.includes('RHB'))) return true;
+                if (f === 'LHB' && (s.includes('LEFT') || s.includes('LHB'))) return true;
+                return false;
+            }
+
+            // ✅ Improved bowler skill matcher
+            function bowlerMatches(rowSkill, filterSkill) {
+                if (!filterSkill || filterSkill.toLowerCase() === 'all') return true;
+                if (!rowSkill) return false;
+                const s = String(rowSkill).toUpperCase();
+                const f = String(filterSkill).toUpperCase();
+                if (s.includes(`(${f})`) || s.includes(f)) return true;
+                const paceKeywords = ['FAST','FAST-MEDIUM','MEDIUM FAST','RAF','RAMF','LAF','LAMF','MF','F'];
+                const spinKeywords = ['SPIN','OFF','LEG','LEFT-ARM','RIGHT-ARM','OFFBREAK','LEGBREAK','SLOW'];
+                if (f === 'PACE') return paceKeywords.some(k => s.includes(k));
+                if (f === 'SPIN') return spinKeywords.some(k => s.includes(k));
+                return s.includes(f);
+            }
+
+            // Client-side computeHeatmap disabled — server provides canonical heatmap
+            function computeHeatmap() {
+                console.warn('computeHeatmap disabled — using server heatmap');
+                return {};
+            }
+
+            // ✅ Render to table
+            // Client-side renderHeatmapFromZones disabled. Server will render canonical heatmap into #heatmap-matrix
+            function renderHeatmapFromZones() {
+                console.warn('renderHeatmapFromZones disabled — using server heatmap');
+            }
+
+            // ✅ Main filter handler (improved)
+            function applyQuickHeatmapFilters() {
+                const activeBatterBtn = document.querySelector('.skill-btn-batter.active-skill-btn');
+                const activeBowlerBtn = document.querySelector('.skill-btn-bowler.active-skill-btn');
+                const batterSkill = activeBatterBtn ? activeBatterBtn.dataset.batterSkill : 'all';
+                const bowlerSkill = activeBowlerBtn ? activeBowlerBtn.dataset.bowlerSkill : 'all';
+                const selectedMetric = metricSelect ? metricSelect.value : '';
+
+                console.log("🧭 Filter applied:", { batterSkill, bowlerSkill, selectedMetric });
+
+                if (!window.baseBalls || window.baseBalls.length === 0) return;
+
+                const filtered = window.baseBalls.filter(b => {
+                const batterField = (
+                    b.scrM_StrikerBatterSkill ||
+                    b.scrM_StrikerBatterSkill_zName ||
+                    b.scrM_BatterSkill ||
+                    b.BatterSkill ||
+                    ""
+                );
+                const bowlerField = (
+                    b.scrM_BowlerSkill ||
+                    b.scrM_BowlerSkill_zName ||
+                    b.scrM_BowlerType ||
+                    b.scrM_BowlerStyle ||
+                    b.BowlerSkill ||
+                    ""
+                );
+                const batterOk = batterMatches(batterField, batterSkill);
+                const bowlerOk = bowlerMatches(bowlerField, bowlerSkill);
+                return batterOk && bowlerOk;
+                });
+
+                console.log(`Filtered balls: ${filtered.length} / ${baseBalls.length}`);
+
+                if (!filtered.length) {
+                heatmapBody.innerHTML = `
+                    <tr>
+                    <td colspan="8" class="p-3 text-center text-slate-500">
+                        No balls found for ${batterSkill} batter & ${bowlerSkill} bowler.
+                    </td>
+                    </tr>`;
+                return;
+                }
+
+                // Keep server-rendered heatmap unchanged; filters update pitch pad and then refresh server heatmap.
+                if (typeof plotPoints === "function") {
+                plotPoints(filtered);
+                }
+
+                // trigger server-side heatmap refresh so both views stay in sync
+                if (typeof window.fetchAndRenderHeatmap === 'function') {
+                try {
+                    // fetchAndRenderHeatmap returns a promise (async function)
+                    window.fetchAndRenderHeatmap().then(() => {
+                    // after server refresh, sync pitch pad with server pitch points
+                    if (window.currentPitchMapPoints && typeof plotPoints === 'function') {
+                        plotPoints(window.currentPitchMapPoints);
+                    }
+                    }).catch(e => console.warn('fetchAndRenderHeatmap failed', e));
+                } catch (e) {
+                    console.warn('fetchAndRenderHeatmap invocation failed', e);
+                }
+                }
+
+            }
+
+            // ✅ Bind events
+            document.querySelectorAll('.skill-btn-batter').forEach(btn => {
+                btn.addEventListener('click', function() {
+                document.querySelectorAll('.skill-btn-batter').forEach(b => b.classList.remove('active-skill-btn','bg-custom-500','text-white'));
+                this.classList.add('active-skill-btn','bg-custom-500','text-white');
+                applyQuickHeatmapFilters();
+                });
+            });
+
+            document.querySelectorAll('.skill-btn-bowler').forEach(btn => {
+                btn.addEventListener('click', function() {
+                document.querySelectorAll('.skill-btn-bowler').forEach(b => b.classList.remove('active-skill-btn','bg-custom-500','text-white'));
+                this.classList.add('active-skill-btn','bg-custom-500','text-white');
+                applyQuickHeatmapFilters();
+                });
+            });
+
+            // if (metricSelect) metricSelect.addEventListener('change', applyQuickHeatmapFilters);
+
+            // Initial client-side heatmap render disabled. Server will provide the canonical heatmap via /apps/heatmap_matrix.
+            });
+        </script>
+
+
+        <!-- ✅ Pitch Map Filter Buttons Fix -->
+        <!-- ✅ Pitch Map Filter Buttons Fix (use globals so plotPoints can draw) -->
+        <script>
+        document.addEventListener("DOMContentLoaded", function() {
+        // Ensure global references exist
+        if (!window.pointsContainer) window.pointsContainer = document.getElementById('pitch-points-container');
+        if (!window.baseBalls) {
+            try { window.baseBalls = document.getElementById("ball-data") && JSON.parse(document.getElementById("ball-data").textContent) || []; }
+            catch(e) { window.baseBalls = []; console.error("Failed to parse ball-data JSON (filter handler):", e); }
+        }
+
+        // Attach click handlers for pitch filter buttons
+        document.querySelectorAll('.pitch-filter-btn').forEach(btn => {
+            btn.addEventListener('click', function () {
+            // Visual active state
+            document.querySelectorAll('.pitch-filter-btn').forEach(b => b.classList.remove('bg-slate-800','text-white'));
+            this.classList.add('bg-slate-800','text-white');
+
+            const selectedFilter = this.dataset.filter;
+            if (!window.pointsContainer || !window.baseBalls) return;
+
+            // Filter using the same wicket-detection used by plotPoints()
+            const filteredPoints = window.baseBalls.filter(p => {
+                const isWicket =
+                Number(p.scrM_IsWicket) === 1 ||
+                Number(p.is_wicket) === 1 ||
+                Number(p.scrM_IsWicketBall) === 1 ||
+                (p.scrM_WicketType && String(p.scrM_WicketType).trim() !== "" && String(p.scrM_WicketType).toLowerCase() !== "none");
+
+                const batsmanRuns = (p.scrM_BatsmanRuns !== undefined && p.scrM_BatsmanRuns !== null) ? String(p.scrM_BatsmanRuns) : '0';
+
+                if (selectedFilter === 'all') return true;
+
+                if (selectedFilter === 'W') {
+                return isWicket;
+                } else {
+                // only match runs and explicitly exclude wickets
+                return (!isWicket) && (batsmanRuns === selectedFilter);
+                }
+            });
+
+            // Re-render only the filtered points. plotPoints uses global pointsContainer.
+            if (typeof plotPoints === "function") {
+                plotPoints(filteredPoints);
+
+                // Also request server heatmap refresh so heatmap cells update to match the pitch filter
+                if (typeof window.fetchAndRenderHeatmap === 'function') {
+                try {
+                    window.fetchAndRenderHeatmap().then(() => {
+                    if (window.currentPitchMapPoints && typeof plotPoints === 'function') {
+                        plotPoints(window.currentPitchMapPoints);
+                    }
+                    }).catch(e => console.warn('fetchAndRenderHeatmap failed', e));
+                } catch (e) {
+                    console.warn('fetchAndRenderHeatmap invocation failed', e);
+                }
+                }
+            } else {
+                console.warn("plotPoints() is not defined yet.");
+            }
+            });
+        });
+
+        // Make "All" button restore everything on page load if it is active
+        const allBtn = document.querySelector('.pitch-filter-btn[data-filter="all"]');
+        if (allBtn && allBtn.classList.contains('bg-slate-800') === false) {
+            // No-op; but if you want default All render, call plotPoints(window.baseBalls) here:
+            if (typeof plotPoints === "function" && window.baseBalls && window.baseBalls.length) {
+            plotPoints(window.baseBalls);
+            }
+        }
+        });
+        </script>
+
+        <script>
+        /* ===== Enforce heatmap label orientation: only Batter controls labels. =====
+        Place this AFTER your other scripts (end of page). Uses MutationObserver
+        to re-apply the chosen orientation whenever heatmap tables are re-rendered.
+        */
+        (function(){
+        // canonical label sets
+        const LABELS = {
+            RHB: [
+            'Way Outside Off',
+            'Outside Off',
+            'Just Outside Off',
+            'Off Stump',
+            'Middle Stump',
+            'Leg Stump',
+            'Outside Leg'
+            ],
+            LHB: [
+            'Outside Leg',
+            'Leg Stump',
+            'Middle Stump',
+            'Off Stump',
+            'Just Outside Off',
+            'Outside Off',
+            'Way Outside Off'
+            ]
+        };
+
+        // current orientation (default)
+        let currentOrient = 'RHB';
+
+        // ensure RHB active by default
+        function ensureDefaultBatterActive() {
+            const btnR = document.querySelector('.skill-btn-batter[data-batter-skill="RHB"]');
+            const btnAll = document.querySelector('.skill-btn-batter[data-batter-skill="all"]');
+            if (btnR) {
+            document.querySelectorAll('.skill-btn-batter').forEach(b =>
+                b.classList.remove('active-skill-btn','bg-custom-500','text-white')
+            );
+            btnR.classList.add('active-skill-btn','bg-custom-500','text-white');
+            currentOrient = 'RHB';
+            } else if (btnAll) {
+            document.querySelectorAll('.skill-btn-batter').forEach(b =>
+                b.classList.remove('active-skill-btn','bg-custom-500','text-white')
+            );
+            btnAll.classList.add('active-skill-btn','bg-custom-500','text-white');
+            currentOrient = 'RHB';
+            }
+        }
+
+        // ✅ fixed version: skip the Y-axis header cell (first <th>)
+        function applyOrientationToHeaders(orientation) {
+            const labels = LABELS[orientation] || LABELS.RHB;
+
+            // Update header texts (skip first Y-axis header)
+            const headerSelectors = [
+                '#heatmap-matrix table thead tr:first-child th',
+                '#heatmap-matrix thead tr:first-child th',
+                '#zone-heatmap-table thead tr:first-child th',
+                '#heatmap-matrix th',
+                '#zone-heatmap-table th'
+            ];
+
+            for (const sel of headerSelectors) {
+                const ths = Array.from(document.querySelectorAll(sel));
+                if (!ths || ths.length === 0) continue;
+                const startIdx = 1;
+                for (let i = 0; i < labels.length; i++) {
+                    const targetIdx = startIdx + i;
+                    if (ths[targetIdx]) {
+                        ths[targetIdx].textContent = labels[i];
+                        ths[targetIdx].style.textAlign = 'center';
+                    }
+                }
+            }
+
+            // Now reorder the server heatmap table columns so cells map correctly when LHB is chosen.
+            const table = document.querySelector('#heatmap-table') || document.querySelector('#heatmap-matrix table');
+            if (!table) return;
+
+            const prev = table.dataset.orientApplied || 'RHB';
+            if (prev === orientation) return; // already applied
+
+            const tbodyRows = Array.from(table.querySelectorAll('tbody tr'));
+            tbodyRows.forEach(tr => {
+                const cells = Array.from(tr.children || []);
+                if (cells.length <= 1) return; // nothing to reorder
+                const bodyCells = cells.slice(1);
+                // move nodes to reverse order (preserves event listeners)
+                const reversed = bodyCells.slice().reverse();
+                reversed.forEach(c => tr.appendChild(c));
+            });
+
+            table.dataset.orientApplied = orientation;
+        }
+
+        // when Batter filter clicked
+        function onBatterButtonClick(skill) {
+            if (!skill || skill.toLowerCase() === 'all') skill = 'RHB';
+            skill = skill.toUpperCase();
+            if (skill !== 'RHB' && skill !== 'LHB') skill = 'RHB';
+            currentOrient = skill;
+            applyOrientationToHeaders(currentOrient);
+
+            // optional: sync pitch image
+            const pitchImage = document.getElementById('pitch-image');
+            if (pitchImage) {
+            pitchImage.src = (currentOrient === 'LHB')
+                ? "{{ url_for('static', filename='images/our/LeftPitch.png') }}"
+                : "{{ url_for('static', filename='images/our/RightPitch.png') }}";
+            }
+        }
+
+        // observe DOM changes (heatmap re-renders)
+        function wireMutationObserver() {
+            const containers = [];
+            const c1 = document.getElementById('heatmap-matrix');
+            if (c1) containers.push(c1);
+            const c2 = document.getElementById('zone-heatmap-table');
+            if (c2) containers.push(c2.parentElement || c2);
+            const wrap = document.getElementById('heatmap-wrapper');
+            if (!containers.length && wrap) containers.push(wrap);
+
+            containers.forEach(container => {
+            try {
+                const obs = new MutationObserver(() => {
+                setTimeout(() => applyOrientationToHeaders(currentOrient), 0);
+                });
+                obs.observe(container, { childList: true, subtree: true, attributes: true, characterData: true });
+            } catch (e) {
+                console.warn('LabelObserver failed', e);
+            }
+            });
+
+            // also catch re-renders from filter clicks or table redraws
+            ['click','change','keyup'].forEach(ev => {
+            window.addEventListener(ev, () => {
+                setTimeout(() => applyOrientationToHeaders(currentOrient), 40);
+            }, { passive: true });
+            });
+        }
+
+        // wire Batter buttons
+        function wireBatterButtons() {
+            const container = document.getElementById('skill-filters') || document;
+            container.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-batter-skill]');
+            if (!btn) return;
+            const skill = btn.dataset.batterSkill || btn.getAttribute('data-batter-skill');
+
+            // update button visuals
+            document.querySelectorAll('.skill-btn-batter').forEach(b => {
+                b.classList.remove('active-skill-btn','bg-custom-500','text-white');
+                b.classList.add('bg-slate-100','text-slate-700','dark:bg-zink-600','dark:text-zink-100');
+            });
+            btn.classList.remove('bg-slate-100','text-slate-700','dark:bg-zink-600','dark:text-zink-100');
+            btn.classList.add('active-skill-btn','bg-custom-500','text-white');
+
+            onBatterButtonClick(skill);
+            });
+        }
+
+        // initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            ensureDefaultBatterActive();
+            applyOrientationToHeaders(currentOrient);
+            wireMutationObserver();
+            wireBatterButtons();
+        });
+
+        // optional manual trigger
+        window.__heatmap_force_orientation = function(orient) {
+            if (!orient) orient = 'RHB';
+            orient = orient.toUpperCase() === 'LHB' ? 'LHB' : 'RHB';
+            currentOrient = orient;
+            applyOrientationToHeaders(currentOrient);
+        };
+        })();
+        </script>
+
+
+
+
+
+      <!-- ✅ Ball Image Plotting Script -->
+      <script>
+        function plotPoints(points) {
+        if (!window.pointsContainer) window.pointsContainer = document.getElementById('pitch-points-container');
+        const container = window.pointsContainer;
+        if (!container) return;
+        container.innerHTML = '';
+
+        // Clear global selection when re-plotting (filters changed)
+        window.selectedBall = null;
+
+        const originalWidth = 170, originalHeight = 280;
+
+        const ballSrc = {
+            'W': "{{ url_for('static', filename='RedBall_Resized.png') }}",
+            '0': "{{ url_for('static', filename='MaroonBall_Resized.png') }}",
+            '1': "{{ url_for('static', filename='BlueBall_Resized.png') }}",
+            '2': "{{ url_for('static', filename='PinkBall_Resized.png') }}",
+            '3': "{{ url_for('static', filename='YellowBall_Resized.png') }}",
+            '4': "{{ url_for('static', filename='OrangeBall_Resized.png') }}",
+            '6': "{{ url_for('static', filename='GreenBall_Resized.png') }}"
+        };
+
+        const colorMap = { 0: '#800000', 1: '#0000FF', 2: '#FF9999', 3: '#FFE066', 4: '#FFA500', 6: '#00FF00', 'W': '#FF0000' };
+
+        function makeSVGDataUrl(color, label) {
+            const textFill = (label === 'W' || [0,1,4].includes(Number(label))) ? '#fff' : '#000';
+            const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28'>
+            <circle cx='14' cy='14' r='12' fill='${color}' />
+            <text x='14' y='19' font-family='Arial' font-size='12' fill='${textFill}' text-anchor='middle'>${label}</text>
+            </svg>`;
+            return 'data:image/svg+xml;base64,' + btoa(svg);
+        }
+
+        // We'll keep a shallow map so clicks can find the ball object quickly
+        const localPoints = (points || []).slice(); // shallow copy
+
+        localPoints.forEach((point, idx) => {
+            const rawX = point.scrM_PitchX ?? point.scrM_BatPitchX ?? null;
+            const rawY = point.scrM_PitchY ?? point.scrM_BatPitchY ?? null;
+            if (rawX === null || rawY === null) return;
+
+            const xNum = Number(rawX);
+            const yNum = Number(rawY);
+            if (!isFinite(xNum) || !isFinite(yNum)) return;
+
+            const x = (xNum / originalWidth) * 100;
+            const y = (yNum / originalHeight) * 100;
+
+            const isWicket =
+            Number(point.scrM_IsWicket) === 1 ||
+            Number(point.is_wicket) === 1 ||
+            Number(point.scrM_IsWicketBall) === 1 ||
+            (point.scrM_WicketType && String(point.scrM_WicketType).trim() !== "" && String(point.scrM_WicketType).toLowerCase() !== "none");
+
+            const runKey = isWicket
+            ? 'W'
+            : (point.scrM_BatsmanRuns !== undefined && point.scrM_BatsmanRuns !== null
+                ? String(point.scrM_BatsmanRuns)
+                : '0');
+
+            const imgEl = document.createElement('img');
+            imgEl.className = 'pitch-point-ball absolute transform -translate-x-1/2 -translate-y-1/2';
+            imgEl.style.left = `${x}%`;
+            imgEl.style.top = `${y}%`;
+            imgEl.style.width = '18px';
+            imgEl.style.height = '18px';
+            imgEl.style.zIndex = 25;
+            imgEl.style.pointerEvents = 'auto'; // allow clicks
+            imgEl.style.opacity = '1';
+            imgEl.alt = runKey;
+
+            // attach metadata
+            imgEl.dataset.idx = String(idx);
+            imgEl.dataset.runKey = runKey;
+            imgEl.dataset.uniqueId = point.scrM_BallID || point.scrM_BallId || point.ball_id || point.id || '';
+
+            const src = ballSrc[runKey] || ballSrc['0'] || '';
+            if (src) imgEl.src = src;
+            else imgEl.src = makeSVGDataUrl(colorMap[runKey] || '#808080', runKey);
+
+            imgEl.onerror = function () {
+            this.onerror = null;
+            this.src = makeSVGDataUrl(colorMap[runKey] || '#808080', runKey);
+            };
+
+            // click selection handler
+            imgEl.addEventListener('click', function (e) {
+            e.stopPropagation();
+
+
+            // Deselect every ball first (fade others)
+            container.querySelectorAll('.pitch-point-ball').forEach(el => {
+                el.classList.remove('selected');
+                el.style.opacity = '0.3';
+            });
+
+            // Select the clicked one
+            this.classList.add('selected');
+            this.style.opacity = '1.0';
+
+            // Save selected ball object globally (for Play button)
+            // We capture the original point from localPoints using idx
+            window.selectedBall = localPoints[idx] || null;
+
+            // Also retain which array is showing (expose for debugging)
+            window._selectedBallIndex = idx;
+            });
+
+            // append to container
+            container.appendChild(imgEl);
+        });
+
+        // Clicking the pitch background clears selection and restores opacity
+        container.addEventListener('click', function () {
+            container.querySelectorAll('.pitch-point-ball').forEach(el => {
+            el.classList.remove('selected');
+            el.style.opacity = '1';
+            });
+            window.selectedBall = null;
+            window._selectedBallIndex = null;
+        });
+        }
+      </script>
+
+      <!-- ✅ Hover Styling -->
+      <!-- <style>
+      .pitch-point-ball {
+        transition: transform 0.15s ease;
+        display: block;
+        pointer-events: none;
+      }
+      .pitch-point-ball:hover {
+        transform: scale(1.25) translate(-50%, -50%);
+        z-index: 30;
+      }
+      .pitch-point-ball.selected {
+        transform: scale(1.3) translate(-50%, -50%);
+        filter: drop-shadow(0 0 6px #00bfff);
+        z-index: 40;
+        }
+      </style> -->
+
+      {% else %}
+      <p class="text-center text-slate-600 dark:text-zink-200">No Line & Length data available for the selected filters.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+
+
+
+<div id="tab-content-areawise" class="hidden mt-4">
+    {% include 'apps/_areawise_report.html' %}
+</div>
+
+<div id="tab-content-shottype" class="hidden mt-4">
+    {% include 'apps/_shottype_report.html' %}
+</div>
+
+<div id="tab-content-deliverytype" class="hidden mt-4">
+    {% include 'apps/_deliverytype_report.html' %}
+</div>
+
+
+
+
+<!-- JS Tab Switch Logic -->
+<!-- JS Tab Switch Logic -->
+<script>
+const STRIKE_RATE_LABEL = window.SELECTED_TYPE === 'bowler' ? 'BSR' : 'SR';
+let lineLengthRendered = false;
+let areawiseChart = null;
+const basePath = "/video-file/";
+
+function resolveVideoUrl(f) {
+    if (!f) return "";
+    if (f.startsWith("/video-file") || f.startsWith("http")) return f;
+    return basePath + f;
+}
+
+function openVideoPlayerViaPost(urls, extraParams = {}) {
+  if (!urls || urls.length === 0) {
+    alert("No videos available.");
+    return;
+  }
+
+  // Normalize urls -> strings
+  const videoValues = urls.map(u => String(u)).filter(Boolean);
+
+  // Create a form
+  const form = document.createElement('form');
+  form.method = 'post';
+  form.action = '/video_player';
+  form.target = '_blank';
+  form.style.display = 'none';
+
+  // Hidden input for videos
+  const videosInput = document.createElement('input');
+  videosInput.type = 'hidden';
+  videosInput.name = 'videos';
+  videosInput.value = videoValues.join(',');
+  form.appendChild(videosInput);
+
+  // Attach any extra params as hidden fields
+  if (extraParams && typeof extraParams === 'object') {
+    Object.keys(extraParams).forEach((k) => {
+      const v = extraParams[k];
+      if (v === undefined || v === null) return;
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = String(k);
+      input.value = String(v);
+      form.appendChild(input);
+    });
+  }
+
+  document.body.appendChild(form);
+  form.submit();
+
+  // Cleanup after a tick (some browsers require the element to remain very briefly)
+  setTimeout(() => {
+    try { document.body.removeChild(form); } catch (e) {}
+  }, 1000);
+}
+
+function switchTab(tab) {
+    const tabs = ['players', 'ballbyball', 'length', 'areawise', 'shottype', 'deliverytype'];
+    tabs.forEach(t => {
+        const tabButton = document.getElementById('tab-' + t);
+        const tabContent = document.getElementById('tab-content-' + t);
+        if (tabButton && tabContent) {
+            tabButton.classList.remove('text-custom-600', 'border-custom-500', 'dark:text-custom-300', 'dark:border-custom-400', 'active');
+            tabButton.classList.add('text-slate-500', 'border-transparent');
+            tabContent.classList.add('hidden');
+        }
+    });
+
+    const activeTabButton = document.getElementById('tab-' + tab);
+    const activeTabContent = document.getElementById('tab-content-' + tab);
+    if (activeTabButton && activeTabContent) {
+        activeTabButton.classList.add('text-custom-600', 'border-custom-500', 'dark:text-custom-300', 'dark:border-custom-400', 'active');
+        activeTabButton.classList.remove('text-slate-500', 'border-transparent');
+        activeTabContent.classList.remove('hidden');
+    }
+
+    if (tab === 'length' && !lineLengthRendered) {
+        renderLineLengthReport();
+        lineLengthRendered = true;
+    }
+
+    if (tab === 'areawise' && window.areawiseChart) {
+        setTimeout(() => window.areawiseChart.resize(), 300);
+    }
+}
+
+// === Global video button handler ===
+document.addEventListener('click', function (event) {
+  const button = event.target.closest('.play-video-btn');
+  if (!button) return;
+
+  // data-videos expected to be a JSON array string
+  let videoFiles;
+  try {
+    videoFiles = JSON.parse(button.getAttribute('data-videos') || '[]');
+  } catch (e) {
+    console.error("Invalid data-videos JSON:", e);
+    alert("No videos available.");
+    return;
+  }
+
+  if (!videoFiles || videoFiles.length === 0) {
+    alert("No videos available.");
+    return;
+  }
+
+  const videoUrls = videoFiles.map(resolveVideoUrl);
+
+  // Collect optional metadata from attributes (if set)
+  const extra = {
+    batter_id: button.getAttribute('data-batter-id') || '',
+    bowler_id: button.getAttribute('data-bowler-id') || '',
+    metric: button.getAttribute('data-metric') || '',
+    match_id: button.getAttribute('data-match-id') || '',
+    inning_id: button.getAttribute('data-inning-id') || ''
+  };
+
+  openVideoPlayerViaPost(videoUrls, extra);
+});
+
+// ---------- Line & Length Report Logic ----------
+function renderLineLengthReport() {
+    const lineLengthContainer = document.getElementById('line-length-container');
+    if (!lineLengthContainer) return;
+
+    const lineLengthDataEl = document.getElementById('line-length-data');
+    if (!lineLengthDataEl || !lineLengthDataEl.textContent) return;
+
+    const allBalls = JSON.parse(lineLengthDataEl.textContent || '[]');
+    if (!allBalls || !allBalls.pitch_points) return;
+
+    const allPitchPoints = allBalls.pitch_points;
+    
+    const pointsContainer = document.getElementById('pitch-points-container');
+    const pitchImage = document.getElementById('pitch-image');
+    const runFilterButtons = document.getElementById('pitch-map-filters');
+    const skillFiltersContainer = document.getElementById('skill-filters');
+
+    let currentBatterSkill = 'all';
+    let currentBowlerSkill = 'all';
+    let currentRunFilter = 'all';
+    let currentPitchMapPoints = [];
+
+    const colorMap = { 0: '#800000', 1: '#0000FF', 2: '#FF9999', 3: '#FFE066', 4: '#FFA500', 6: '#00FF00', 'W': '#FF0000' };
+
+    const lengthLabels = ['Fulltoss', 'Yorker', 'Full Length', 'Overpitch', 'Good Length', 'Short of Good', 'Short Pitch'];
+    const lineLabels = ['Way Outside Off', 'Outside Off', 'Just Outside Off', 'Off Stump', 'Middle Stump', 'Leg Stump', 'Outside Leg'];
+
+    const getLengthZone = (y) => {
+        y = Number(y) / 2;
+        if (isNaN(y)) return null;
+        if (y < 93) return 'Fulltoss';
+        if (y < 107.5) return 'Yorker';
+        if (y < 128) return 'Full Length';
+        if (y < 150.5) return 'Overpitch';
+        if (y < 177) return 'Good Length';
+        if (y < 205) return 'Short of Good';
+        return 'Short Pitch';
+    };
+    const getLineZone = (x) => {
+        if (x < 50) return 'Way Outside Off';
+        if (x < 70) return 'Outside Off';
+        if (x < 80) return 'Just Outside Off';
+        if (x < 84) return 'Off Stump';
+        if (x < 88) return 'Middle Stump';
+        if (x < 95) return 'Leg Stump';
+        return 'Outside Leg';
+    };
+
+    // ✅ Fixed: Plot with real ball images
+    function plotPoints(points) {
+    if (!window.pointsContainer) window.pointsContainer = document.getElementById('pitch-points-container');
+    const container = window.pointsContainer;
+    if (!container) return;
+    container.innerHTML = '';
+
+        const originalWidth = 170, originalHeight = 280;
+
+        const ballSrc = {
+            'W': "{{ url_for('static', filename='RedBall_Resized.png') }}",
+            '0': "{{ url_for('static', filename='MaroonBall_Resized.png') }}",
+            '1': "{{ url_for('static', filename='BlueBall_Resized.png') }}",
+            '2': "{{ url_for('static', filename='PinkBall_Resized.png') }}",
+            '3': "{{ url_for('static', filename='YellowBall_Resized.png') }}",
+            '4': "{{ url_for('static', filename='OrangeBall_Resized.png') }}",
+            '6': "{{ url_for('static', filename='GreenBall_Resized.png') }}"
+        };
+
+        function makeSVGDataUrl(color, label) {
+            const textFill = (label === 'W' || [0,1,4].includes(Number(label))) ? '#fff' : '#000';
+            const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28'>
+                <circle cx='14' cy='14' r='12' fill='${color}' />
+                <text x='14' y='19' font-family='Arial' font-size='12' fill='${textFill}' text-anchor='middle'>${label}</text>
+            </svg>`;
+            return 'data:image/svg+xml;base64,' + btoa(svg);
+        }
+
+        points.forEach(point => {
+            if (point.scrM_PitchX === null || point.scrM_PitchY === null) return;
+
+            const x = (Number(point.scrM_PitchX) / originalWidth) * 100;
+            const y = (Number(point.scrM_PitchY) / originalHeight) * 100;
+
+            const isWicket =
+                Number(point.scrM_IsWicket) === 1 ||
+                Number(point.is_wicket) === 1 ||
+                Number(point.scrM_IsWicketBall) === 1 ||
+                (point.scrM_WicketType && String(point.scrM_WicketType).trim() !== "" && String(point.scrM_WicketType).toLowerCase() !== "none");
+
+            const runKey = isWicket
+                ? 'W'
+                : (point.scrM_BatsmanRuns !== undefined && point.scrM_BatsmanRuns !== null
+                    ? String(point.scrM_BatsmanRuns)
+                    : '0');
+
+
+            const imgEl = document.createElement('img');
+            imgEl.className = 'pitch-point-ball absolute transform -translate-x-1/2 -translate-y-1/2';
+            imgEl.style.left = `${x}%`;
+            imgEl.style.top = `${y}%`;
+            imgEl.style.width = '18px';
+            imgEl.style.height = '18px';
+            imgEl.style.zIndex = 25;
+            imgEl.style.pointerEvents = 'auto';
+            imgEl.style.cursor = 'pointer';
+            imgEl.alt = runKey;
+
+            const src = ballSrc[runKey] || ballSrc['0'] || '';
+            imgEl.src = src || makeSVGDataUrl(colorMap[runKey] || '#808080', runKey);
+            imgEl.onerror = function () {
+                this.onerror = null;
+                this.src = makeSVGDataUrl(colorMap[runKey] || '#808080', runKey);
+            };
+            imgEl.dataset.video = point.video_url || point.scrM_VideoFile || point.scrM_Video1URL || point.scrM_Video1Url || '';
+            // ✅ Click listener for selecting a ball
+            // 🟢 Click listener for showing Play button instead of dimming other balls
+            imgEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+
+                // Remove any existing play buttons
+                container.querySelectorAll('.ball-play-btn').forEach(btn => btn.remove());
+
+                // Create a play button overlay
+                const playBtn = document.createElement('button');
+                playBtn.className = 'ball-play-btn';
+                playBtn.innerHTML = '▶️';
+                playBtn.style.position = 'absolute';
+                playBtn.style.left = `${imgEl.offsetLeft - 5}px`;
+                playBtn.style.top = `${imgEl.offsetTop - 5}px`;
+                playBtn.style.background = 'rgba(0,0,0,0.6)';
+                playBtn.style.border = 'none';
+                playBtn.style.color = 'white';
+                playBtn.style.borderRadius = '50%';
+                playBtn.style.width = '24px';
+                playBtn.style.height = '24px';
+                playBtn.style.cursor = 'pointer';
+                playBtn.style.fontSize = '14px';
+                playBtn.style.display = 'flex';
+                playBtn.style.alignItems = 'center';
+                playBtn.style.justifyContent = 'center';
+                playBtn.style.zIndex = '100';
+
+                // Add button to container
+                container.appendChild(playBtn);
+
+                // 🟣 On clicking play button → open video directly
+                // inside the playBtn addEventListener:
+                playBtn.addEventListener('click', (evt) => {
+                evt.stopPropagation();
+
+                const videoPath = imgEl.dataset.video;
+                if (!videoPath) {
+                    alert("No video available for this ball.");
+                    return;
+                }
+
+                // Use POST helper; send single video as array
+                const videoUrl = resolveVideoUrl(videoPath);
+                openVideoPlayerViaPost([videoUrl], {
+                    match_id: imgEl.dataset.matchId || '',
+                    inning_id: imgEl.dataset.inningId || '',
+                    del_id: imgEl.dataset.delId || ''
+                });
+
+                // remove overlay
+                playBtn.remove();
+                });
+
+            });
+            // 🧹 Remove play button when clicking anywhere else on the page
+            document.addEventListener('click', function (e) {
+                const clickedPlayBtn = e.target.closest('.ball-play-btn');
+                const clickedBall = e.target.closest('.pitch-point-ball');
+                if (!clickedPlayBtn && !clickedBall) {
+                    document.querySelectorAll('.ball-play-btn').forEach(btn => btn.remove());
+                }
+            });
+
+
+            // ✅ Clicking outside any ball clears selection
+            container.addEventListener('click', () => {
+                container.querySelectorAll('.pitch-point-ball').forEach(el => {
+                    el.classList.remove('selected');
+                    el.style.opacity = '1';
+                });
+                window.selectedBall = null;
+            });
+
+
+            pointsContainer.appendChild(imgEl);
+        });
+    }
+
+    // --- Heatmap Table Builder (updated to support filtering) ---
+    function updateHeatmap(points) {
+        const heatmapContainer = document.getElementById('heatmap-matrix');
+        if (!heatmapContainer) return;
+
+        // ✅ Always compute from filtered points to respect batter/bowler filters
+        const newHeatmapData = {};
+        const lengthTotals = {};
+        const lineTotals = {};
+        
+        points.forEach(p => {
+            if (p.scrM_PitchX === null || p.scrM_PitchY === null) return;
+            const lengthZone = getLengthZone(p.scrM_PitchY);
+            const lineZone = getLineZone(p.scrM_PitchX);
+            const zoneName = `${lengthZone}-${lineZone}`;
+            
+            // Initialize zone data
+            if (!newHeatmapData[zoneName])
+                newHeatmapData[zoneName] = { balls: 0, runs: 0, boundaries: 0, wickets: 0, dots: 0 };
+            
+            // Initialize totals
+            if (!lengthTotals[lengthZone])
+                lengthTotals[lengthZone] = { balls: 0, runs: 0, boundaries: 0, wickets: 0, dots: 0 };
+            if (!lineTotals[lineZone])
+                lineTotals[lineZone] = { balls: 0, runs: 0, boundaries: 0, wickets: 0, dots: 0 };
+            
+            const runs = Number(p.scrM_BatsmanRuns) || 0;
+            const isBoundary = (p.scrM_IsBoundry == 1 || p.scrM_IsSixer == 1);
+            const isWicketFlag =
+                Number(p.scrM_IsWicket) === 1 ||
+                Number(p.is_wicket) === 1 ||
+                Number(p.scrM_IsWicketBall) === 1 ||
+                (p.scrM_WicketType &&
+                    String(p.scrM_WicketType).trim() !== "" &&
+                    String(p.scrM_WicketType).toLowerCase() !== "none");
+            const isDot = (runs === 0 && !isWicketFlag);
+            
+            // Update zone data
+            newHeatmapData[zoneName].balls++;
+            newHeatmapData[zoneName].runs += runs;
+            if (isBoundary) newHeatmapData[zoneName].boundaries++;
+            if (isWicketFlag) newHeatmapData[zoneName].wickets++;
+            if (isDot) newHeatmapData[zoneName].dots++;
+            
+            // Update totals
+            lengthTotals[lengthZone].balls++;
+            lengthTotals[lengthZone].runs += runs;
+            if (isBoundary) lengthTotals[lengthZone].boundaries++;
+            if (isWicketFlag) lengthTotals[lengthZone].wickets++;
+            if (isDot) lengthTotals[lengthZone].dots++;
+            
+            lineTotals[lineZone].balls++;
+            lineTotals[lineZone].runs += runs;
+            if (isBoundary) lineTotals[lineZone].boundaries++;
+            if (isWicketFlag) lineTotals[lineZone].wickets++;
+            if (isDot) lineTotals[lineZone].dots++;
+        });
+
+        // Compute metrics for totals
+        const totalsByLength = {};
+        const totalsByLine = {};
+        
+        Object.keys(lengthTotals).forEach(zone => {
+            const data = lengthTotals[zone];
+            totalsByLength[zone] = computeMetrics(data);
+        });
+        
+        Object.keys(lineTotals).forEach(zone => {
+            const data = lineTotals[zone];
+            totalsByLine[zone] = computeMetrics(data);
+        });
+        
+        // Compute metrics for each cell
+        const serverData = {};
+        Object.keys(newHeatmapData).forEach(zoneName => {
+            const data = newHeatmapData[zoneName];
+            serverData[zoneName] = computeMetrics(data);
+        });
+        
+        function computeMetrics(data) {
+            const balls = data.balls || 0;
+            const runs = data.runs || 0;
+            const wickets = data.wickets || 0;
+            const boundaries = data.boundaries || 0;
+            const dots = data.dots || 0;
+            
+            let metricValue = 0;
+            const selectedMetric = (document.getElementById("metric")?.value || "").trim();
+            
+            if (balls > 0) {
+                switch (selectedMetric) {
+                    case 'Strike Rate':
+                        metricValue = ((runs / balls) * 100).toFixed(1);
+                        break;
+                    case 'Dot Ball %':
+                        metricValue = ((dots / balls) * 100).toFixed(1);
+                        break;
+                    case 'Boundary %':
+                        metricValue = ((boundaries / balls) * 100).toFixed(1);
+                        break;
+                    case 'Average':
+                        metricValue = wickets > 0 ? (runs / wickets).toFixed(2) : runs.toFixed(2);
+                        break;
+                    case 'Balls Per Dismissal':
+                        metricValue = wickets > 0 ? (balls / wickets).toFixed(1) : balls;
+                        break;
+                    case 'Ball %':
+                        const totalBalls = points.length;
+                        metricValue = totalBalls > 0 ? ((balls / totalBalls) * 100).toFixed(1) : 0;
+                        break;
+                    case 'Wicket':
+                        metricValue = wickets;
+                        break;
+                    default:
+                        metricValue = runs;
+                }
+            }
+            
+            return {
+                balls: balls,
+                runs: runs,
+                wickets: wickets,
+                boundaries: boundaries,
+                dots: dots,
+                metric_value: metricValue
+            };
+        }
+
+        // ✅ For color intensity
+        let maxRuns = 1;
+        const runsArr = Object.values(serverData).map(v => Number(v.runs) || 0);
+        if (runsArr.length) maxRuns = Math.max(1, ...runsArr);
+
+        // ✅ Axis label formatter
+        const selectedMetric = (document.getElementById("metric")?.value || "").trim();
+        window.SELECTED_TYPE = "{{ selected_type }}";
+        function formatAxisLabel(label, aggObj) {
+            if (!aggObj) return label;
+            const metricVal = aggObj.metric_value ?? 0;
+            const runs = aggObj.runs ?? 0;
+            switch (selectedMetric) {
+                case 'Strike Rate':
+                    return `${label} (${window.STRIKE_RATE_LABEL} ${metricVal})`;
+                case 'Dot Ball %':
+                    return `${label} (Dot% ${metricVal})`;
+                case 'Boundary %':
+                    return `${label} (Bound% ${metricVal})`;
+                case 'Average':
+                    return `${label} (Avg ${metricVal})`;
+                case 'Balls Per Dismissal':
+                    return `${label} (BPD ${metricVal})`;
+                case 'Ball %':
+                    return `${label} (Ball% ${metricVal})`;
+                case 'Wicket':
+                    return `${label} (${metricVal} Wkts)`;
+                default:
+                    return `${label} (${runs} r)`;
+            }
+        }
+
+        // ✅ Create table structure
+        heatmapContainer.innerHTML = '';
+        const table = document.createElement('table');
+        table.className = 'w-full text-xs border-collapse';
+        table.style.tableLayout = 'fixed';
+        table.style.width = '100%';
+        
+        const thead = document.createElement('thead');
+        const tbody = document.createElement('tbody');
+
+        // ✅ Header (X-axis = Line)
+        const headerRow = document.createElement('tr');
+        headerRow.innerHTML = `<th class="p-2 border border-slate-300 dark:border-zink-600"></th>`;
+        lineLabels.forEach(label => {
+            const th = document.createElement('th');
+            th.className = 'p-2 border border-slate-300 dark:border-zink-600 text-center font-semibold';
+            let formattedLabel = label;
+            if (totalsByLine && totalsByLine[label]) {
+                formattedLabel = formatAxisLabel(label, totalsByLine[label]);
+            }
+            th.textContent = formattedLabel;
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+
+        // ✅ Body rows (Y-axis = Length)
+        lengthLabels.forEach(length => {
+            const bodyRow = document.createElement('tr');
+
+            const th = document.createElement('th');
+            th.className = 'p-2 border border-slate-300 dark:border-zink-600 text-left font-semibold align-middle';
+            let formattedLabel = length;
+            if (totalsByLength && totalsByLength[length]) {
+                formattedLabel = formatAxisLabel(length, totalsByLength[length]);
+            }
+            th.textContent = formattedLabel;
+            bodyRow.appendChild(th);
+
+            lineLabels.forEach(line => {
+                const zoneName = `${length}-${line}`;
+                const data = serverData[zoneName] || { balls: 0, runs: 0, boundaries: 0, wickets: 0, display_text: null, metric_value: 0 };
+
+                const td = document.createElement('td');
+                td.className = 'p-2 border border-slate-300 dark:border-zink-600 text-center';
+
+                // ✅ Interactivity: play videos for this zone
+                td.addEventListener('click', function () {
+                    const zoneBalls = (currentPitchMapPoints || []).filter(p => {
+                        const lz = getLengthZone(p.scrM_PitchY);
+                        const ln = getLineZone(p.scrM_PitchX);
+                        return `${lz}-${ln}` === zoneName;
+                    });
+
+                    if (!zoneBalls.length) {
+                        alert(`No balls available for zone: ${zoneName}`);
+                        return;
+                    }
+
+                    const isWicketBall = (b) =>
+                        Number(b.scrM_IsWicket) === 1 ||
+                        Number(b.is_wicket) === 1 ||
+                        Number(b.scrM_IsWicketBall) === 1 ||
+                        (b.scrM_WicketType &&
+                            String(b.scrM_WicketType).trim() !== "" &&
+                            String(b.scrM_WicketType).toLowerCase() !== "none");
+
+                    let filteredBalls = zoneBalls;
+                    if (selectedMetric === "Dot Ball %") {
+                        filteredBalls = zoneBalls.filter(b => Number(b.scrM_BatsmanRuns) === 0 && !isWicketBall(b));
+                    } else if (selectedMetric === "Boundary %") {
+                        filteredBalls = zoneBalls.filter(b => Number(b.scrM_IsBoundry) === 1 || Number(b.scrM_IsSixer) === 1);
+                    } else if (selectedMetric === "Wicket") {
+                        filteredBalls = zoneBalls.filter(isWicketBall);
+                    } else if (selectedMetric === "Strike Rate") {
+                        filteredBalls = zoneBalls.filter(b => Number(b.scrM_BatsmanRuns) > 0 || isWicketBall(b));
+                    }
+
+                    if (!filteredBalls.length) {
+                        alert(`No videos found for ${selectedMetric || "this zone"}.`);
+                        return;
+                    }
+
+                    const videoFiles = filteredBalls
+                        .map(ball => {
+                            for (let i = 1; i <= 6; i++) {
+                                if (ball[`scrM_Video${i}URL`]) return ball[`scrM_Video${i}URL`];
+                                if (ball[`scrM_Video${i}Url`]) return ball[`scrM_Video${i}Url`];
+                            }
+                            return (
+                                ball.video_url ||
+                                ball.scrM_VideoFile ||
+                                ball.scrM_Video1URL ||
+                                ball.scrM_Video1Url ||
+                                ball.video ||
+                                null
+                            );
+                        })
+                        .filter(Boolean);
+
+                    if (!videoFiles.length) {
+                        alert(`No video files available for this metric in zone: ${zoneName}`);
+                        return;
+                    }
+
+                    const videoUrls = videoFiles.map(resolveVideoUrl);
+                    const queryParams = new URLSearchParams({
+                        videos: videoUrls.join(','),
+                        metric: selectedMetric || "",
+                        zone: zoneName
+                    });
+
+                    document.querySelectorAll('#heatmap-matrix td').forEach(c => c.classList.remove('active-cell'));
+                    td.classList.add('active-cell');
+                    window.open(`/video_player?${queryParams.toString()}`, "_blank");
+                });
+
+                // ✅ Cell visuals
+                if (data.balls === 0 && data.runs === 0 && data.boundaries === 0 && data.wickets === 0) {
+                    td.style.backgroundColor = 'transparent';
+                    td.style.borderColor = 'transparent';
+                    td.style.color = 'transparent';
+                    td.style.padding = '0';
+                    td.innerHTML = '';
+                } else {
+                    if (data.wickets > 0) td.style.border = '2px solid #ef4444';
+                    const intensity = (data.runs || 0) / maxRuns;
+                    if ((data.runs || 0) > 0)
+                        td.style.backgroundColor = `rgba(34, 197, 94, ${Math.max(0.1, intensity)})`;
+                    else
+                        td.style.backgroundColor = 'rgba(241, 245, 249, 0.06)';
+
+                    if (data.display_text) {
+                        td.innerHTML = `<div class="text-center text-xs font-medium">${data.display_text}</div>`;
+                    } else {
+                        td.innerHTML = `<div>${data.balls} b</div><div>${data.runs} r</div><div>${data.boundaries} B, ${data.wickets} W</div>`;
+                    }
+
+                    const innerDiv = td.querySelector('div');
+                    if (innerDiv) innerDiv.style.pointerEvents = 'none';
+                }
+
+                bodyRow.appendChild(td);
+            });
+
+            tbody.appendChild(bodyRow);
+        });
+        
+        // ✅ Assemble and append table
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        heatmapContainer.appendChild(table);
+    }
+
+
+
+    function applyAllFilters() {
+        let filteredPoints = allPitchPoints;
+
+        if (currentBatterSkill === 'RHB') {
+            filteredPoints = filteredPoints.filter(p => p.scrM_StrikerBatterSkill === 'Right handed batsman (RHB)');
+        } else if (currentBatterSkill === 'LHB') {
+            filteredPoints = filteredPoints.filter(p => p.scrM_StrikerBatterSkill === 'Left handed batsman (LHB)');
+        }
+
+        if (currentBowlerSkill === 'Pace') {
+            const paceSkills = ['Right arm fast (RAF)', 'Right arm medium fast (RAMF)', 'left arm fast (LAF)', 'Left arm medium fast (LAMF)'];
+            filteredPoints = filteredPoints.filter(p => paceSkills.includes(p.scrM_BowlerSkill));
+        } else if (currentBowlerSkill === 'Spin') {
+            const paceSkills = ['Right arm fast (RAF)', 'Right arm medium fast (RAMF)', 'left arm fast (LAF)', 'Left arm medium fast (LAMF)'];
+            filteredPoints = filteredPoints.filter(p => p.scrM_BowlerSkill && !paceSkills.includes(p.scrM_BowlerSkill));
+        }
+
+        function isWicketBall(ball) {
+            return (
+                Number(ball.scrM_IsWicket) === 1 ||
+                Number(ball.is_wicket) === 1 ||
+                Number(ball.scrM_IsWicketBall) === 1 ||
+                (ball.scrM_WicketType && String(ball.scrM_WicketType).trim() !== "" && String(ball.scrM_WicketType).toLowerCase() !== "none")
+            );
+        }
+
+
+        updateHeatmap(filteredPoints);
+
+        // Also request server-side heatmap refresh so the canonical heatmap updates to match these client filters
+        if (typeof window.fetchAndRenderHeatmap === 'function') {
+            try {
+                window.fetchAndRenderHeatmap().then(() => {
+                    if (window.currentPitchMapPoints && typeof plotPoints === 'function') {
+                        plotPoints(window.currentPitchMapPoints);
+                    }
+                }).catch(e => console.warn('fetchAndRenderHeatmap failed', e));
+            } catch (e) {
+                console.warn('fetchAndRenderHeatmap invocation failed', e);
+            }
+        }
+
+        let pitchMapPoints = filteredPoints;
+        if (currentRunFilter !== 'all') {
+            // Robust wicket detection that matches server payloads
+            const isWicket = (p) => (
+            Number(p.scrM_IsWicket) === 1 ||
+            Number(p.is_wicket) === 1 ||
+            Number(p.scrM_IsWicketBall) === 1 ||
+            (p.scrM_WicketType && String(p.scrM_WicketType).trim() !== "" && String(p.scrM_WicketType).toLowerCase() !== "none")
+            );
+
+            if (currentRunFilter === 'W') {
+                // Show only wickets (any point where isWicket(p) === true)
+                pitchMapPoints = filteredPoints.filter(p => isWicket(p));
+            } else {
+                // Show only the chosen run value, explicitly excluding wickets
+                const runVal = parseInt(currentRunFilter, 10);
+                pitchMapPoints = filteredPoints.filter(p => !isWicket(p) && Number(p.scrM_BatsmanRuns) === runVal);
+            }
+        }
+
+        currentPitchMapPoints = pitchMapPoints;
+        window.currentPitchMapPoints = pitchMapPoints; // expose to global so Play handler can use it
+        // Clear any previous selection when filters change
+        window.selectedBall = null;
+        window._selectedBallIndex = null;
+        plotPoints(pitchMapPoints);
+
+    }
+
+    if (skillFiltersContainer) {
+        skillFiltersContainer.addEventListener('click', (e) => {
+            const button = e.target.closest('button');
+            if (!button) return;
+
+            const batterSkill = button.dataset.batterSkill;
+            const bowlerSkill = button.dataset.bowlerSkill;
+
+            if (batterSkill) {
+                currentBatterSkill = batterSkill;
+                document.querySelectorAll('.skill-btn-batter').forEach(btn => {
+                    btn.classList.remove('bg-custom-500', 'text-white');
+                    btn.classList.add('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+                });
+                button.classList.add('bg-custom-500', 'text-white');
+                button.classList.remove('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+
+                if (pitchImage) {
+                    pitchImage.src = batterSkill === 'LHB'
+                        ? "{{ url_for('static', filename='images/our/LeftPitch.png') }}"
+                        : "{{ url_for('static', filename='images/our/RightPitch.png') }}";
+                }
+            }
+
+            if (bowlerSkill) {
+                currentBowlerSkill = bowlerSkill;
+                document.querySelectorAll('.skill-btn-bowler').forEach(btn => {
+                    btn.classList.remove('bg-custom-500', 'text-white');
+                    btn.classList.add('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+                });
+                button.classList.add('bg-custom-500', 'text-white');
+                button.classList.remove('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+            }
+
+            applyAllFilters();
+        });
+    }
+
+    if (runFilterButtons) {
+        runFilterButtons.addEventListener('click', (e) => {
+            const button = e.target.closest('button');
+            if (!button || button.id === 'play-pitch-videos-btn') return;
+            currentRunFilter = button.dataset.filter;
+            applyAllFilters();
+        });
+    }
+
+    applyAllFilters();
+
+    const playPitchVideosBtn = document.getElementById('play-pitch-videos-btn');
+    if (playPitchVideosBtn) {
+    // Play selected ball (playPitchVideosBtn listener)
+    playPitchVideosBtn.addEventListener('click', () => {
+    // If a ball is selected -> play only that ball (prefer del_id)
+    if (window.selectedBall) {
+        const ball = window.selectedBall;
+        const delId = ball.scrM_DelId || ball.scrM_DelID || ball.DelId || ball.del_id || ball.id || null;
+
+        if (delId) {
+        // If you prefer to open by del_id only (backend will fetch the video)
+        // open via GET with del_id is still OK, but better to POST del_id as well:
+        openVideoPlayerViaPost([], { del_id: String(delId), match_id: String(ball.scrM_MatchID || ''), inning_id: String(ball.scrM_InningNo || '') });
+        return;
+        }
+
+        // Fallback to first available singleVideo
+        let singleVideo = null;
+        for (let i = 1; i <= 6; i++) {
+        if (ball['scrM_Video' + i + 'URL']) { singleVideo = ball['scrM_Video' + i + 'URL']; break; }
+        if (!singleVideo && ball['scrM_Video' + i + 'Url']) singleVideo = ball['scrM_Video' + i + 'Url'];
+        }
+        if (singleVideo) {
+        openVideoPlayerViaPost([resolveVideoUrl(singleVideo)], {});
+        return;
+        }
+
+        alert("No video available for this ball.");
+        return;
+    }
+
+    // Else: play all filtered balls (unchanged behavior but use POST)
+    const pts = window.currentPitchMapPoints || currentPitchMapPoints || [];
+    const videoFiles = (pts.map(ball => {
+        for (let i = 1; i <= 6; i++) {
+        if (ball['scrM_Video' + i + 'URL']) return ball['scrM_Video' + i + 'URL'];
+        if (ball['scrM_Video' + i + 'Url']) return ball['scrM_Video' + i + 'Url'];
+        }
+        return ball.video_url || ball.scrM_VideoFile || ball.video || null;
+    })).filter(f => f);
+
+    if (!videoFiles.length) { alert("No videos available for the current filter."); return; }
+    const videoUrls = videoFiles.map(resolveVideoUrl);
+    openVideoPlayerViaPost(videoUrls, {});
+    });
+
+    }
+}
+
+    // ---------- Ball-by-Ball Filtering Logic ----------
+    document.addEventListener('DOMContentLoaded', function () {
+        const toggleBtn = document.getElementById('toggle-filter-btn');
+        const filterSection = document.getElementById('filter-section');
+        const filterArrow = document.getElementById('filter-arrow');
+
+        if (toggleBtn && filterSection && filterArrow) {
+            const updateArrow = () => {
+                filterArrow.style.transform = filterSection.classList.contains('hidden') ? 'rotate(180deg)' : 'rotate(0deg)';
+            };
+
+            toggleBtn.addEventListener('click', () => {
+                filterSection.classList.toggle('hidden');
+                updateArrow();
+            });
+
+            updateArrow();
+        }
+
+        const container = document.getElementById('ball-by-ball-container');
+        const filterButtonsContainer = document.getElementById('ball-by-ball-filters');
+
+        const allBallsData = document.getElementById('ball-data')?.textContent;
+        const allBalls = JSON.parse(allBallsData || '[]');
+        let currentFilteredBalls = [];
+
+        function renderBalls(ballsToRender) {
+            container.innerHTML = '';
+            currentFilteredBalls = ballsToRender;
+
+            if (!ballsToRender || ballsToRender.length === 0) {
+                container.innerHTML = '<p class="text-center text-slate-600 dark:text-zink-200">No matching ball-by-ball data available.</p>';
+                return;
+            }
+
+            ballsToRender.forEach(ball => {
+                const wicketClass = ball.scrM_IsWicket == 1
+                    ? 'bg-red-500'
+                    : (ball.scrM_IsBoundry == 1 || ball.scrM_IsSixer == 1
+                        ? 'bg-custom-500'
+                        : 'bg-slate-800 text-white');
+
+                const lineLength =
+                    (ball.scrM_PitchX && ball.scrM_PitchY &&
+                        String(ball.scrM_PitchX).toLowerCase().trim() !== 'nan' &&
+                        String(ball.scrM_PitchY).toLowerCase().trim() !== 'nan')
+                        ? `Line/Length: ${ball.scrM_Line} / ${ball.scrM_Length}`
+                        : '';
+
+                // Collect video files for this specific ball
+                const videoFiles = [];
+                for (let i = 1; i <= 6; i++) {
+                    if (ball['scrM_Video' + i + 'URL']) {
+                        videoFiles.push(ball['scrM_Video' + i + 'URL']);
+                    }
+                }
+
+                // Runs bubble now acts as the clickable play button
+                // For wides/no-balls show WB/NB or e.g. 2WB/2NB when extra runs > 1
+                let displayRuns = '';
+                try {
+                    const batsmanRuns = (ball.scrM_BatsmanRuns !== undefined && ball.scrM_BatsmanRuns !== null) ? Number(ball.scrM_BatsmanRuns) : NaN;
+                    if (ball.scrM_IsWideBall == 1) {
+                        const wr = Number(ball.scrM_WideRuns) || 0;
+                        displayRuns = wr <= 1 ? 'WD' : `${wr}WD`;
+                    } else if (ball.scrM_IsNoBall == 1) {
+                        const nr = Number(ball.scrM_NoBallRuns) || 0;
+                        displayRuns = nr <= 1 ? 'NB' : `${nr}NB`;
+                    } else if (!Number.isNaN(batsmanRuns)) {
+                        displayRuns = String(batsmanRuns);
+                    } else {
+                        displayRuns = ball.scrM_BatsmanRuns || '';
+                    }
+                } catch (e) {
+                    displayRuns = ball.scrM_BatsmanRuns || '';
+                }
+
+                let runsHtml = `
+                    <div class="w-20 mx-auto text-center text-white font-semibold rounded-full py-1 text-lg ${wicketClass}">
+                        ${displayRuns}
+                    </div>
+                `;
+
+                if (videoFiles.length > 0) {
+                    // ✅ Convert file paths to actual playable URLs
+                    const videoUrls = videoFiles.map(resolveVideoUrl);
+
+                    // ✅ Build metadata for POST payload
+                    const extraMeta = {
+                        match_id: ball.scrM_MatchName || '',
+                        inning_id: ball.scrM_InningNo || '',
+                        over_no: ball.scrM_OverNo || '',
+                        delivery_no: ball.scrM_DelNo || ''
+                    };
+
+                    // ✅ Use secure play-video-btn (no visible URLs)
+                    runsHtml = `
+                        <button 
+                            class="play-video-btn runs-play-btn"
+                            data-videos='${JSON.stringify(videoUrls)}'
+                            data-match-id='${String(extraMeta.match_id)}'
+                            data-inning-id='${String(extraMeta.inning_id)}'
+                            data-over-no='${String(extraMeta.over_no)}'
+                            data-delivery-no='${String(extraMeta.delivery_no)}'
+                            aria-label="Play ball video"
+                            style="background:none;border:none;cursor:pointer"
+                        >
+                            <div class="w-20 mx-auto text-center text-white font-semibold rounded-full py-1 text-lg ${wicketClass}">
+                                ${displayRuns}
+                            </div>
+                        </button>
+                    `;
+                }
+
+
+
+                // Main ball HTML without any extra video play icon
+                // Cricket overs start from 0, so subtract 1 from scrM_OverNo
+                const displayOverNo = (ball.scrM_OverNo || 1) - 1;
+                const ballHtml = `
+                <div class="bg-custom-50 dark:bg-zink-700 p-3 rounded-lg">
+                    <div class="flex justify-between items-center text-xs mb-2">
+                        <span class="font-normal text-slate-700 dark:text-zink-100">${ball.scrM_MatchName}</span>
+                        <span class="text-slate-500 dark:text-zink-300">Inn: ${ball.scrM_InningNo}</span>
+                    </div>
+                    <div class="flex items-start justify-between">
+                        <div class="flex-grow">
+                            <div class="flex items-center gap-4">
+                                <div class="bg-custom-500 text-white rounded-md px-3 py-1 text-sm font-semibold">
+                                    Over ${displayOverNo}.${ball.scrM_DelNo}
+                                </div>
+                                <div class="text-sm flex-grow font-light">
+                                    <p class="font-normal text-slate-800 dark:text-zink-50">
+                                        ${ball.commentary || ''}
+                                    </p>
+                                    <div class="mt-2 border-t border-slate-200 dark:border-zink-600 pt-1">
+                                        <p class="text-slate-600 dark:text-zink-200">
+                                            ${lineLength}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ml-4 text-right flex-shrink-0 w-24">
+                            ${runsHtml}
+                        </div>
+                    </div>
+                </div>
+                `;
+                container.insertAdjacentHTML('beforeend', ballHtml);
+            });
+        }
+
+
+        if (filterButtonsContainer) {
+            filterButtonsContainer.addEventListener('click', function (event) {
+                const targetButton = event.target.closest('button');
+                if (!targetButton) return;
+
+                const filterType = targetButton.getAttribute('data-filter');
+                let filteredBalls = [];
+
+                // --- PLAY ALL now uses Advanced Flask Video Player ---
+                if (filterType === 'play-all') {
+                const videoFiles = currentFilteredBalls
+                    .map(ball => {
+                    for (let i = 1; i <= 6; i++) {
+                        if (ball['scrM_Video' + i + 'URL']) return ball['scrM_Video' + i + 'URL'];
+                    }
+                    return null;
+                    })
+                    .filter(f => f);
+
+                const videoUrls = videoFiles.map(resolveVideoUrl);
+
+                if (videoUrls.length > 0) {
+                    openVideoPlayerViaPost(videoUrls, {});
+                } else {
+                    alert("No videos available for the current filter.");
+                }
+                return;
+                }
+
+
+                switch (filterType) {
+                    case 'all':
+                        filteredBalls = allBalls;
+                        break;
+                    case '1':
+                        filteredBalls = allBalls.filter(b => b.scrM_BatsmanRuns === 1);
+                        break;
+                    case '2':
+                        filteredBalls = allBalls.filter(b => b.scrM_BatsmanRuns === 2);
+                        break;
+                    case '4':
+                        filteredBalls = allBalls.filter(b => b.scrM_BatsmanRuns === 4);
+                        break;
+                    case '6':
+                        filteredBalls = allBalls.filter(b => b.scrM_IsSixer == 1);
+                        break;
+                    case 'wickets':
+                        filteredBalls = allBalls.filter(b => b.scrM_IsWicket == 1);
+                        break;
+                    case 'beaten':
+                        filteredBalls = allBalls.filter(b => b.scrM_IsBeaten == 1);
+                        break;
+                    case 'wide':
+                        filteredBalls = allBalls.filter(b => b.scrM_IsWideBall == 1);
+                        break;
+                    case 'noball':
+                        filteredBalls = allBalls.filter(b => b.scrM_IsNoBall == 1);
+                        break;
+                    case 'uncomfortable':
+                        filteredBalls = allBalls.filter(b => b.scrM_IsUncomfort == 1);
+                        break;
+                    case 'last10':
+                        filteredBalls = allBalls.slice(-10);
+                        break;
+                    case 'last20':
+                        filteredBalls = allBalls.slice(-20);
+                        break;
+                }
+
+                if (targetButton.dataset.filter !== 'play-all') {
+                    filterButtonsContainer.querySelectorAll('.filter-btn').forEach(btn => {
+                        if (btn.dataset.filter !== 'play-all') {
+                            btn.classList.remove('bg-custom-500', 'text-white');
+                            btn.classList.add('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+                        }
+                    });
+                    targetButton.classList.add('bg-custom-500', 'text-white');
+                    targetButton.classList.remove('bg-slate-100', 'text-slate-700', 'dark:bg-zink-600', 'dark:text-zink-100');
+                }
+
+                renderBalls(filteredBalls);
+            });
+        }
+
+        if (allBalls && allBalls.length > 0) {
+            renderBalls(allBalls);
+        } else {
+            if (container) {
+                container.innerHTML = '<p class="text-center text-slate-600 dark:text-zink-200">No ball-by-ball data available.</p>';
+            }
+        }
+    });
+</script>
+
+<!-- ✅ Hover effect styling -->
+<style>
+.pitch-point-ball {
+  transition: transform 0.15s ease;
+  display: block;
+  pointer-events: none;
+}
+
+.pitch-point-ball:hover {
+  transform: scale(1.25) translate(-50%, -50%);
+  z-index: 30;
+}
+
+.pitch-point-ball.selected {
+  transform: scale(1.3) translate(-50%, -50%);
+  filter: drop-shadow(0 0 6px #00bfff);
+  z-index: 40;
+}
+
+.ball-play-btn {
+  transition: transform 0.1s ease;
+  position: absolute;
+  background: rgba(0, 0, 0, 0.6);
+  border: none;
+  color: white;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.ball-play-btn:hover {
+  transform: scale(1.15);
+}
+
+#zone-heatmap-table td {
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+#zone-heatmap-table td:hover {
+  transform: scale(1.03);
+  box-shadow: 0 0 4px rgba(0,0,0,0.25);
+}
+
+#zone-heatmap-table td.active-cell {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+</style>
+
+
+{% endblock content %}
