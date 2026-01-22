@@ -21,9 +21,7 @@
                                 class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
                             <option value="" disabled {{ 'selected' if not selected_tournament else '' }}>Select Tournament</option>
                             {% for t in tournaments %}
-                                <option value="{{ t.value }}" {% if selected_tournament and selected_tournament|int == t.value %}selected{% endif %}>
-                                    {{ t.label }}
-                                </option>
+                                <option value="{{ t.id }}" {% if selected_tournament and selected_tournament|int == t.id %}selected{% endif %}>{{ t.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -33,9 +31,9 @@
                     <div class="relative w-full md:w-1/4">
                         <label for="team" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Team</label>
                         <select id="team" name="team" onchange="this.form.submit()" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
-                            <option disabled {% if not request.form.get('team') %}selected{% endif %}>Select Team</option>
+                            <option disabled {% if not selected_team %}selected{% endif %}>Select Team</option>
                             {% for team in teams %}
-                            <option value="{{ team }}" {% if team == request.form.get('team') %}selected{% endif %}>{{ team }}</option>
+                            <option value="{{ team.id }}" {% if team.id|string == selected_team|string %}selected{% endif %}>{{ team.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -43,13 +41,27 @@
                     <!-- Matches -->
                     <div class="relative w-full md:w-1/2">
                         <label for="matches" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Matches</label>
-                        <select id="matches" name="matches[]" multiple onchange="this.form.submit()" data-choices data-choices-removeItem class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
-                            <!-- 🆕 'All' option -->
-                            <option value="All" {% if 'All' in request.form.getlist('matches[]') %}selected{% endif %}>All</option>
+
+                        <select id="matches" name="matches[]" multiple
+                            onchange="this.form.submit()"
+                            data-choices data-choices-removeItem
+                            class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                            <!-- ✅ 'All' option -->
+                            <option value="All"
+                                {% if 'All' in request.form.getlist('matches[]') %}selected{% endif %}>
+                                All
+                            </option>
+
+                            {% set selected_match_ids = request.form.getlist('matches[]') %}
 
                             {% for m in matches %}
-                            <option value="{{ m }}" {% if m in request.form.getlist('matches[]') %}selected{% endif %}>{{ m }}</option>
+                                <option value="{{ m.id }}"
+                                    {% if (m.id|string) in selected_match_ids %}selected{% endif %}>
+                                    {{ m.label }}
+                                </option>
                             {% endfor %}
+
                         </select>
 
                         <script>
@@ -219,44 +231,60 @@
                 <!-- Row 3: Player and Type Filters -->
                 <!-- Row 3: Player and Type Filters -->
                 <div class="flex flex-col gap-3 mt-4 md:flex-row md:items-center">
+
                     <!-- Type -->
                     <div class="relative w-full md:w-1/4">
                         <label class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Type</label>
                         <div class="flex gap-4 mt-1">
                             <label class="inline-flex items-center">
                                 <input type="radio" name="type" value="batter" class="form-radio text-custom-500"
-                                    onchange="this.form.submit()" {% if request.form.get('type', 'batter') == 'batter' %}checked{% endif %}>
+                                    onchange="this.form.submit()"
+                                    {% if request.form.get('type', 'batter') == 'batter' %}checked{% endif %}>
                                 <span class="ml-2 text-slate-700 dark:text-zink-100">Batters vs Bowlers</span>
                             </label>
+
                             <label class="inline-flex items-center">
                                 <input type="radio" name="type" value="bowler" class="form-radio text-custom-500"
-                                    onchange="this.form.submit()" {% if request.form.get('type') == 'bowler' %}checked{% endif %}>
+                                    onchange="this.form.submit()"
+                                    {% if request.form.get('type') == 'bowler' %}checked{% endif %}>
                                 <span class="ml-2 text-slate-700 dark:text-zink-100">Bowlers vs Batters</span>
                             </label>
                         </div>
                     </div>
 
+                    {# ✅ Selected values for UI display (use backend-safe variables) #}
+                    {% set selected_batters = display_selected_batters if display_selected_batters is defined else request.form.getlist('batters[]') %}
+                    {% set selected_bowlers = display_selected_bowlers if display_selected_bowlers is defined else request.form.getlist('bowlers[]') %}
+
                     <!-- Dynamic Dropdown Swap Based on Type -->
                     {% if request.form.get('type', 'batter') == 'batter' %}
+
                         <!-- 🏏 Batters Left -->
                         <div class="relative w-full md:w-1/4">
                             <label for="batters" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
                                 Batters
                             </label>
-                            <select id="batters" name="batters[]" multiple data-choices data-choices-removeItem
+
+                            <select id="batters" name="batters[]" multiple
+                                data-choices data-choices-removeItem
+                                onchange="this.form.submit()"
                                 class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
 
-                                <!-- 🆕 All Batter Filters -->
-                                <option value="All" {% if 'All' in display_selected_batters %}selected{% endif %}>All</option>
-                                <option value="All (RHB)" {% if 'All (RHB)' in display_selected_batters %}selected{% endif %}>All (RHB)</option>
-                                <option value="All (LHB)" {% if 'All (LHB)' in display_selected_batters %}selected{% endif %}>All (LHB)</option>
+                                <!-- ✅ All Batter Filters -->
+                                <option value="All" {% if 'All' in selected_batters %}selected{% endif %}>All</option>
+                                <option value="All (RHB)" {% if 'All (RHB)' in selected_batters %}selected{% endif %}>All (RHB)</option>
+                                <option value="All (LHB)" {% if 'All (LHB)' in selected_batters %}selected{% endif %}>All (LHB)</option>
 
-                                <!-- Individual Batters -->
+                                <!-- ✅ Individual Batters (VALUE = ID, TEXT = NAME) -->
                                 {% for p in batters %}
-                                    {% set clean_name = p.split(' (')[0] %}
-                                    <option value="{{ clean_name }}" data-label="{{ p }}"
-                                        {% if clean_name in display_selected_batters %}selected{% endif %}>
-                                        {{ p }}
+                                    {% set batter_id = p["id"] if p is mapping else p.id %}
+                                    {% set batter_name = p["name"] if p is mapping else p.name %}
+                                    {% set batter_id_str = batter_id|string %}
+
+                                    <option value="{{ batter_id_str }}"
+                                        data-label="{{ batter_name }}"
+                                        {% if batter_id_str in selected_batters %}selected{% endif %}>
+                                        {{ batter_name }}
                                     </option>
                                 {% endfor %}
                             </select>
@@ -272,50 +300,70 @@
                             <label for="bowlers" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
                                 Bowlers
                             </label>
-                            <select id="bowlers" name="bowlers[]" multiple data-choices data-choices-removeItem
+
+                            <select id="bowlers" name="bowlers[]" multiple
+                                data-choices data-choices-removeItem
+                                onchange="this.form.submit()"
                                 class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
 
-                                <!-- 🆕 All Bowler Filters -->
-                                <option value="All" {% if 'All' in display_selected_bowlers %}selected{% endif %}>All</option>
+                                <!-- ✅ All Bowler Filters -->
+                                <option value="All" {% if 'All' in selected_bowlers %}selected{% endif %}>All</option>
+
                                 {% for t in ['RAF', 'RAMF', 'LAF', 'LAMF', 'ROB', 'RALB', 'LAS', 'LAC', 'ROX', 'LOX'] %}
-                                    <option value="All ({{ t }})" {% if 'All (' ~ t ~ ')' in display_selected_bowlers %}selected{% endif %}>
+                                    <option value="All ({{ t }})"
+                                        {% if ('All (' ~ t ~ ')') in selected_bowlers %}selected{% endif %}>
                                         All ({{ t }})
                                     </option>
                                 {% endfor %}
 
-                                <!-- Individual Bowlers -->
+                                <!-- ✅ Individual Bowlers (VALUE = ID, TEXT = NAME) -->
                                 {% for p in bowlers %}
-                                    {% set clean_name = p.split(' (')[0] %}
-                                    <option value="{{ clean_name }}" data-label="{{ p }}"
-                                        {% if clean_name in display_selected_bowlers %}selected{% endif %}>
-                                        {{ p }}
+                                    {% set bowler_id = p["id"] if p is mapping else p.id %}
+                                    {% set bowler_name = p["name"] if p is mapping else p.name %}
+                                    {% set bowler_id_str = bowler_id|string %}
+
+                                    <option value="{{ bowler_id_str }}"
+                                        data-label="{{ bowler_name }}"
+                                        {% if bowler_id_str in selected_bowlers %}selected{% endif %}>
+                                        {{ bowler_name }}
                                     </option>
                                 {% endfor %}
                             </select>
                         </div>
+
                     {% else %}
+
                         <!-- 🏹 Bowlers Left -->
                         <div class="relative w-full md:w-1/4">
                             <label for="bowlers" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
                                 Bowlers
                             </label>
-                            <select id="bowlers" name="bowlers[]" multiple data-choices data-choices-removeItem
+
+                            <select id="bowlers" name="bowlers[]" multiple
+                                data-choices data-choices-removeItem
+                                onchange="this.form.submit()"
                                 class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
 
-                                <!-- 🆕 All Bowler Filters -->
-                                <option value="All" {% if 'All' in display_selected_bowlers %}selected{% endif %}>All</option>
+                                <!-- ✅ All Bowler Filters -->
+                                <option value="All" {% if 'All' in selected_bowlers %}selected{% endif %}>All</option>
+
                                 {% for t in ['RAF', 'RAMF', 'LAF', 'LAMF', 'ROB', 'RALB', 'LAS', 'LAC', 'ROX', 'LOX'] %}
-                                    <option value="All ({{ t }})" {% if 'All (' ~ t ~ ')' in display_selected_bowlers %}selected{% endif %}>
+                                    <option value="All ({{ t }})"
+                                        {% if ('All (' ~ t ~ ')') in selected_bowlers %}selected{% endif %}>
                                         All ({{ t }})
                                     </option>
                                 {% endfor %}
 
-                                <!-- Individual Bowlers -->
+                                <!-- ✅ Individual Bowlers -->
                                 {% for p in bowlers %}
-                                    {% set clean_name = p.split(' (')[0] %}
-                                    <option value="{{ clean_name }}" data-label="{{ p }}"
-                                        {% if clean_name in display_selected_bowlers %}selected{% endif %}>
-                                        {{ p }}
+                                    {% set bowler_id = p["id"] if p is mapping else p.id %}
+                                    {% set bowler_name = p["name"] if p is mapping else p.name %}
+                                    {% set bowler_id_str = bowler_id|string %}
+
+                                    <option value="{{ bowler_id_str }}"
+                                        data-label="{{ bowler_name }}"
+                                        {% if bowler_id_str in selected_bowlers %}selected{% endif %}>
+                                        {{ bowler_name }}
                                     </option>
                                 {% endfor %}
                             </select>
@@ -331,24 +379,32 @@
                             <label for="batters" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
                                 Batters
                             </label>
-                            <select id="batters" name="batters[]" multiple data-choices data-choices-removeItem
+
+                            <select id="batters" name="batters[]" multiple
+                                data-choices data-choices-removeItem
+                                onchange="this.form.submit()"
                                 class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
 
-                                <!-- 🆕 All Batter Filters -->
-                                <option value="All" {% if 'All' in display_selected_batters %}selected{% endif %}>All</option>
-                                <option value="All (RHB)" {% if 'All (RHB)' in display_selected_batters %}selected{% endif %}>All (RHB)</option>
-                                <option value="All (LHB)" {% if 'All (LHB)' in display_selected_batters %}selected{% endif %}>All (LHB)</option>
+                                <!-- ✅ All Batter Filters -->
+                                <option value="All" {% if 'All' in selected_batters %}selected{% endif %}>All</option>
+                                <option value="All (RHB)" {% if 'All (RHB)' in selected_batters %}selected{% endif %}>All (RHB)</option>
+                                <option value="All (LHB)" {% if 'All (LHB)' in selected_batters %}selected{% endif %}>All (LHB)</option>
 
-                                <!-- Individual Batters -->
+                                <!-- ✅ Individual Batters -->
                                 {% for p in batters %}
-                                    {% set clean_name = p.split(' (')[0] %}
-                                    <option value="{{ clean_name }}" data-label="{{ p }}"
-                                        {% if clean_name in display_selected_batters %}selected{% endif %}>
-                                        {{ p }}
+                                    {% set batter_id = p["id"] if p is mapping else p.id %}
+                                    {% set batter_name = p["name"] if p is mapping else p.name %}
+                                    {% set batter_id_str = batter_id|string %}
+
+                                    <option value="{{ batter_id_str }}"
+                                        data-label="{{ batter_name }}"
+                                        {% if batter_id_str in selected_batters %}selected{% endif %}>
+                                        {{ batter_name }}
                                     </option>
                                 {% endfor %}
                             </select>
                         </div>
+
                     {% endif %}
 
                     {% if match_format in ['t20', 't20i', 'odi', 'one day', 'one day international'] %}
@@ -375,6 +431,7 @@
                         </button>
                     </div>
                 </div>
+
 
 
             </form>
@@ -574,7 +631,7 @@ function downloadPlayerPDF(playerName) {
 
           <!-- ✅ Select Metrics Dropdown -->
           <div class="flex items-center gap-2">
-            <label for="metric" class="text-sm font-medium text-slate-600 dark:text-zink-200">Metrics:</label>
+            <!-- <label for="metric" class="text-sm font-medium text-slate-600 dark:text-zink-200">Metrics:</label>
             <select id="metric" name="metric"
                     class="form-select text-xs border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100 rounded-md px-2 py-1">
                 <option value="" {% if not request.form.get('metric') %}selected{% endif %}>Default</option>
@@ -590,7 +647,7 @@ function downloadPlayerPDF(playerName) {
                 <option value="Balls Per Dismissal" {% if request.form.get('metric') == 'Balls Per Dismissal' %}selected{% endif %}>Balls Per Dismissal</option>
                 <option value="Ball %" {% if request.form.get('metric') == 'Ball %' %}selected{% endif %}>Ball %</option>
                 <option value="Wicket" {% if selected_metric == 'Wicket' %}selected{% endif %}>Wickets</option>
-            </select>
+            </select> -->
           </div>
         </div>
 
@@ -661,6 +718,7 @@ function downloadPlayerPDF(playerName) {
                       
                       <script>
                       document.addEventListener('DOMContentLoaded', function () {
+                        window.selectedPitchRunFilter = "all";
                         const metricEl = document.getElementById('metric');
                         const heatmapContainer = document.getElementById('heatmap-matrix');
                         const heatmapInfo = document.getElementById('heatmap-info');
@@ -707,7 +765,8 @@ function downloadPlayerPDF(playerName) {
                                 from_over: document.querySelector('input[name="from_over"]')?.value || null,
                                 to_over: document.querySelector('input[name="to_over"]')?.value || null,
                                 phase: document.querySelector('select[name="phase"]')?.value || null,
-                                ball_phase: document.querySelector('select[name="ball_phase"]')?.value || null
+                                ball_phase: document.querySelector('select[name="ball_phase"]')?.value || null,
+                                pitch_run_filter: window.selectedPitchRunFilter || "all"
                             };
 
                             // If quick-skill buttons are used, prefer them (map to tokens server can understand)
@@ -1755,6 +1814,7 @@ function downloadPlayerPDF(playerName) {
             this.classList.add('bg-slate-800','text-white');
 
             const selectedFilter = this.dataset.filter;
+            window.selectedPitchRunFilter = selectedFilter;
             if (!window.pointsContainer || !window.baseBalls) return;
 
             // Filter using the same wicket-detection used by plotPoints()
@@ -1997,17 +2057,23 @@ function downloadPlayerPDF(playerName) {
       <!-- ✅ Ball Image Plotting Script -->
       <script>
         function plotPoints(points) {
-        if (!window.pointsContainer) window.pointsContainer = document.getElementById('pitch-points-container');
-        const container = window.pointsContainer;
-        if (!container) return;
-        container.innerHTML = '';
-
-        // Clear global selection when re-plotting (filters changed)
-        window.selectedBall = null;
-
-        const originalWidth = 170, originalHeight = 280;
-
-        const ballSrc = {
+          if (!window.pointsContainer) {
+            window.pointsContainer = document.getElementById('pitch-points-container');
+          }
+        
+          const container = window.pointsContainer;
+          if (!container) return;
+        
+          // clear previous balls
+          container.innerHTML = '';
+        
+          // Clear global selection when re-plotting (filters changed)
+          window.selectedBall = null;
+          window._selectedBallIndex = null;
+        
+          const originalWidth = 170, originalHeight = 280;
+        
+          const ballSrc = {
             'W': "{{ url_for('static', filename='RedBall_Resized.png') }}",
             '0': "{{ url_for('static', filename='MaroonBall_Resized.png') }}",
             '1': "{{ url_for('static', filename='BlueBall_Resized.png') }}",
@@ -2015,46 +2081,56 @@ function downloadPlayerPDF(playerName) {
             '3': "{{ url_for('static', filename='YellowBall_Resized.png') }}",
             '4': "{{ url_for('static', filename='OrangeBall_Resized.png') }}",
             '6': "{{ url_for('static', filename='GreenBall_Resized.png') }}"
-        };
-
-        const colorMap = { 0: '#800000', 1: '#0000FF', 2: '#FF9999', 3: '#FFE066', 4: '#FFA500', 6: '#00FF00', 'W': '#FF0000' };
-
-        function makeSVGDataUrl(color, label) {
-            const textFill = (label === 'W' || [0,1,4].includes(Number(label))) ? '#fff' : '#000';
+          };
+        
+          const colorMap = {
+            0: '#800000',
+            1: '#0000FF',
+            2: '#FF9999',
+            3: '#FFE066',
+            4: '#FFA500',
+            6: '#00FF00',
+            'W': '#FF0000'
+          };
+        
+          function makeSVGDataUrl(color, label) {
+            const textFill = (label === 'W' || [0, 1, 4].includes(Number(label))) ? '#fff' : '#000';
             const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28'>
-            <circle cx='14' cy='14' r='12' fill='${color}' />
-            <text x='14' y='19' font-family='Arial' font-size='12' fill='${textFill}' text-anchor='middle'>${label}</text>
+              <circle cx='14' cy='14' r='12' fill='${color}' />
+              <text x='14' y='19' font-family='Arial' font-size='12' fill='${textFill}' text-anchor='middle'>${label}</text>
             </svg>`;
             return 'data:image/svg+xml;base64,' + btoa(svg);
-        }
-
-        // We'll keep a shallow map so clicks can find the ball object quickly
-        const localPoints = (points || []).slice(); // shallow copy
-
-        localPoints.forEach((point, idx) => {
+          }
+        
+          // ✅ keep a local copy so click selection picks correct ball object
+          const localPoints = (points || []).slice();
+        
+          localPoints.forEach((point, idx) => {
             const rawX = point.scrM_PitchX ?? point.scrM_BatPitchX ?? null;
             const rawY = point.scrM_PitchY ?? point.scrM_BatPitchY ?? null;
             if (rawX === null || rawY === null) return;
-
+        
             const xNum = Number(rawX);
             const yNum = Number(rawY);
             if (!isFinite(xNum) || !isFinite(yNum)) return;
-
+        
             const x = (xNum / originalWidth) * 100;
             const y = (yNum / originalHeight) * 100;
-
+        
             const isWicket =
-            Number(point.scrM_IsWicket) === 1 ||
-            Number(point.is_wicket) === 1 ||
-            Number(point.scrM_IsWicketBall) === 1 ||
-            (point.scrM_WicketType && String(point.scrM_WicketType).trim() !== "" && String(point.scrM_WicketType).toLowerCase() !== "none");
-
+              Number(point.scrM_IsWicket) === 1 ||
+              Number(point.is_wicket) === 1 ||
+              Number(point.scrM_IsWicketBall) === 1 ||
+              (point.scrM_WicketType &&
+                String(point.scrM_WicketType).trim() !== "" &&
+                String(point.scrM_WicketType).toLowerCase() !== "none");
+        
             const runKey = isWicket
-            ? 'W'
-            : (point.scrM_BatsmanRuns !== undefined && point.scrM_BatsmanRuns !== null
+              ? 'W'
+              : (point.scrM_BatsmanRuns !== undefined && point.scrM_BatsmanRuns !== null
                 ? String(point.scrM_BatsmanRuns)
                 : '0');
-
+        
             const imgEl = document.createElement('img');
             imgEl.className = 'pitch-point-ball absolute transform -translate-x-1/2 -translate-y-1/2';
             imgEl.style.left = `${x}%`;
@@ -2062,62 +2138,62 @@ function downloadPlayerPDF(playerName) {
             imgEl.style.width = '18px';
             imgEl.style.height = '18px';
             imgEl.style.zIndex = 25;
-            imgEl.style.pointerEvents = 'auto'; // allow clicks
+            imgEl.style.pointerEvents = 'auto'; // ✅ allow clicks
+            imgEl.style.cursor = 'pointer';
             imgEl.style.opacity = '1';
             imgEl.alt = runKey;
-
+        
             // attach metadata
             imgEl.dataset.idx = String(idx);
             imgEl.dataset.runKey = runKey;
             imgEl.dataset.uniqueId = point.scrM_BallID || point.scrM_BallId || point.ball_id || point.id || '';
-
+        
+            // set image src
             const src = ballSrc[runKey] || ballSrc['0'] || '';
             if (src) imgEl.src = src;
             else imgEl.src = makeSVGDataUrl(colorMap[runKey] || '#808080', runKey);
-
+        
             imgEl.onerror = function () {
-            this.onerror = null;
-            this.src = makeSVGDataUrl(colorMap[runKey] || '#808080', runKey);
+              this.onerror = null;
+              this.src = makeSVGDataUrl(colorMap[runKey] || '#808080', runKey);
             };
-
-            // click selection handler
+        
+            // ✅ click selection ONLY (NO VIDEO PLAY, NO OVERLAY)
             imgEl.addEventListener('click', function (e) {
-            e.stopPropagation();
-
-
-            // Deselect every ball first (fade others)
-            container.querySelectorAll('.pitch-point-ball').forEach(el => {
+              e.stopPropagation();
+        
+              // Fade all balls
+              container.querySelectorAll('.pitch-point-ball').forEach(el => {
                 el.classList.remove('selected');
                 el.style.opacity = '0.3';
+              });
+        
+              // Highlight clicked ball
+              this.classList.add('selected');
+              this.style.opacity = '1.0';
+        
+              // Save selected ball object globally (for Video Play button)
+              window.selectedBall = localPoints[idx] || null;
+              window._selectedBallIndex = idx;
+        
+              console.log("✅ Selected Ball:", window.selectedBall);
             });
-
-            // Select the clicked one
-            this.classList.add('selected');
-            this.style.opacity = '1.0';
-
-            // Save selected ball object globally (for Play button)
-            // We capture the original point from localPoints using idx
-            window.selectedBall = localPoints[idx] || null;
-
-            // Also retain which array is showing (expose for debugging)
-            window._selectedBallIndex = idx;
-            });
-
-            // append to container
+        
             container.appendChild(imgEl);
-        });
-
-        // Clicking the pitch background clears selection and restores opacity
-        container.addEventListener('click', function () {
+          });
+        
+          // ✅ Clicking empty pitch area clears selection
+          container.addEventListener('click', function () {
             container.querySelectorAll('.pitch-point-ball').forEach(el => {
-            el.classList.remove('selected');
-            el.style.opacity = '1';
+              el.classList.remove('selected');
+              el.style.opacity = '1';
             });
             window.selectedBall = null;
             window._selectedBallIndex = null;
-        });
+          });
         }
-      </script>
+        </script>
+        
 
       <!-- ✅ Hover Styling -->
       <!-- <style>
@@ -3215,7 +3291,8 @@ function renderLineLengthReport() {
 .pitch-point-ball {
   transition: transform 0.15s ease;
   display: block;
-  pointer-events: none;
+  pointer-events: auto;   /* ✅ MUST for click */
+  cursor: pointer;        /* ✅ show clickable */
 }
 
 .pitch-point-ball:hover {

@@ -20,10 +20,19 @@
                 <!-- Tournament -->
                 <div class="relative w-full md:w-1/4">
                     <label for="tournament" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Tournament</label>
-                    <select id="tournament" name="tournament" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100" onchange="this.form.submit()">
-                        <option value="" disabled {% if not selected_tournament %}selected{% endif %}>Select Tournament</option>
+                    <select id="tournament" name="tournament"
+                        class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
+                        onchange="this.form.submit()">
+                        
+                        <option value="" disabled {% if not selected_tournament %}selected{% endif %}>
+                            Select Tournament
+                        </option>
+
                         {% for t in tournaments %}
-                        <option value="{{ t.value }}" {% if selected_tournament == t.value|string %}selected{% endif %}>{{ t.label }}</option>
+                        <option value="{{ t.value }}"
+                            {% if selected_tournament == t.value|string %}selected{% endif %}>
+                            {{ t.label }}
+                        </option>
                         {% endfor %}
                     </select>
                 </div>
@@ -31,10 +40,19 @@
                 <!-- Team -->
                 <div class="relative w-full md:w-1/4">
                     <label for="team" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Team</label>
-                    <select id="team" name="team" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100" onchange="this.form.submit()">
-                        <option value="" disabled {% if not selected_team %}selected{% endif %}>Select Team</option>
+                    <select id="team" name="team"
+                        class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
+                        onchange="this.form.submit()">
+
+                        <option value="" disabled {% if not selected_team %}selected{% endif %}>
+                            Select Team
+                        </option>
+
                         {% for team in teams %}
-                        <option value="{{ team }}" {% if selected_team == team %}selected{% endif %}>{{ team }}</option>
+                        <option value="{{ team.value }}"
+                            {% if selected_team == team.value|string %}selected{% endif %}>
+                            {{ team.label }}
+                        </option>
                         {% endfor %}
                     </select>
                 </div>
@@ -42,13 +60,24 @@
                 <!-- Matches (Multi-select) -->
                 <div class="relative w-full md:w-1/4">
                     <label for="matches" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Matches</label>
-                    <select id="matches" name="matches" multiple data-choices data-choices-removeItem class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100" onchange="this.form.submit()">
+
+                    <select id="matches" name="matches" multiple data-choices data-choices-removeItem
+                        class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
+                        onchange="this.form.submit()">
+
+                        <!-- ✅ All Option -->
                         <option value="All" {% if 'All' in selected_matches %}selected{% endif %}>All</option>
+
+                        <!-- ✅ Match Options -->
                         {% if 'All' not in selected_matches %}
                             {% for m in matches %}
-                            <option value="{{ m }}" {% if m in selected_matches %}selected{% endif %}>{{ m }}</option>
+                            <option value="{{ m.value }}"
+                                {% if m.value|string in selected_matches or m.value in selected_matches %}selected{% endif %}>
+                                {{ m.label }}
+                            </option>
                             {% endfor %}
                         {% endif %}
+
                     </select>
 
                     <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>

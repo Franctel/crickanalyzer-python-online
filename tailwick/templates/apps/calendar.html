@@ -23,13 +23,19 @@
       <form id="filter-form" method="POST" class="flex flex-col gap-3 md:flex-row md:items-end md:gap-4">
 
         <!-- Tournament -->
+        <!-- Tournament -->
         <div class="relative w-full md:w-1/4">
           <label for="tournament" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
             Tournament
           </label>
-          <select id="tournament" name="tournament" onchange="this.form.submit()" 
+
+          <select id="tournament" name="tournament" onchange="this.form.submit()"
             class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
-            <option value="" disabled {% if not selected_tournament %}selected{% endif %}>Select Tournament</option>
+
+            <option value="" disabled {% if not selected_tournament %}selected{% endif %}>
+              Select Tournament
+            </option>
+
             {% for t in tournaments %}
             <option value="{{ t.value }}" {% if selected_tournament|int == t.value %}selected{% endif %}>
               {{ t.label }}
@@ -43,11 +49,18 @@
           <label for="team" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
             Team
           </label>
-          <select id="team" name="team" onchange="this.form.submit()" 
+
+          <select id="team" name="team" onchange="this.form.submit()"
             class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
-            <option value="" disabled {% if not selected_team %}selected{% endif %}>Select Team</option>
-            {% for team in teams %}
-            <option value="{{ team }}" {% if selected_team == team %}selected{% endif %}>{{ team }}</option>
+
+            <option value="" disabled {% if not selected_team %}selected{% endif %}>
+              Select Team
+            </option>
+
+            {% for tm in teams %}
+            <option value="{{ tm.value }}" {% if selected_team|int == tm.value %}selected{% endif %}>
+              {{ tm.label }}
+            </option>
             {% endfor %}
           </select>
         </div>

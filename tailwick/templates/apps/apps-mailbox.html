@@ -22,57 +22,103 @@
 
                 <!-- Tournament -->
                 <div class="relative w-full md:w-1/4">
-                    <label for="tournament" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Tournament</label>
-                    <select id="tournament" name="tournament" onchange="this.form.submit()" 
+                    <label for="tournament"
+                          class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                        Tournament
+                    </label>
+
+                    <select id="tournament" name="tournament"
+                            onchange="this.form.submit()"
                             class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
-                        <option value="" disabled {% if not selected_tournament %}selected{% endif %}>Select Tournament</option>
-                        {% for t in tournaments %}
-                        <option value="{{ t.value }}" {% if selected_tournament|int == t.value %}selected{% endif %}>
-                            {{ t.label }}
+
+                        <option value="" disabled {% if not selected_tournament %}selected{% endif %}>
+                            Select Tournament
                         </option>
+
+                        {% for t in tournaments %}
+                            <option value="{{ t.id }}"
+                                {% if selected_tournament|string == t.id|string %}selected{% endif %}>
+                                {{ t.name }}
+                            </option>
                         {% endfor %}
                     </select>
                 </div>
+
 
                 <!-- Team -->
                 <div class="relative w-full md:w-1/4">
-                    <label for="team" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Team</label>
-                    <select id="team" name="team" onchange="this.form.submit()" 
+                    <label for="team"
+                          class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                        Team
+                    </label>
+
+                    <select id="team" name="team"
+                            onchange="this.form.submit()"
                             class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
-                        <option disabled {% if not selected_team %}selected{% endif %}>Select Team</option>
-                        {% for team in teams %}
-                        <option value="{{ team }}" {% if selected_team == team %}selected{% endif %}>{{ team }}</option>
+
+                        <option value="" disabled {% if not selected_team %}selected{% endif %}>
+                            Select Team
+                        </option>
+
+                        {% for tm in teams %}
+                            <option value="{{ tm.id }}"
+                                {% if selected_team|string == tm.id|string %}selected{% endif %}>
+                                {{ tm.name }}
+                            </option>
                         {% endfor %}
                     </select>
                 </div>
+
 
                 <!-- Matches -->
                 <div class="relative w-full md:w-1/2">
-                    <label for="matches" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Matches</label>
-                    <select id="matches" name="match" onchange="this.form.submit()" 
+                    <label for="match"
+                          class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                        Matches
+                    </label>
+
+                    <select id="match" name="match"
+                            onchange="this.form.submit()"
                             class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
-                        <option disabled {% if not selected_match %}selected{% endif %}>Select Match</option>
+
+                        <option value="" disabled {% if not selected_match %}selected{% endif %}>
+                            Select Match
+                        </option>
+
                         {% for m in matches %}
-                        <option value="{{ m }}" {% if selected_match == m %}selected{% endif %}>{{ m }}</option>
+                            <option value="{{ m.id }}"
+                                {% if selected_match|string == m.id|string %}selected{% endif %}>
+                                {{ m.label }}
+                            </option>
                         {% endfor %}
                     </select>
                 </div>
 
+
+                <!-- Radio Buttons -->
                 <!-- Radio Buttons -->
                 <div class="flex flex-col gap-2 md:w-1/5 md:self-end mt-4">
-                    <label class="inline-flex items-center">
-                        <input type="radio" name="view_type" value="scorecard" class="form-radio text-custom-500"
-                            {% if request.values.get('view_type', 'scorecard') == 'scorecard' %}checked{% endif %}
-                            onchange="document.getElementById('filter-form').action='{{ url_for('apps.mailbox_filters') }}'; this.form.submit();">
-                        <span class="ml-2 text-slate-700 dark:text-zink-100">Scorecard</span>
-                    </label>
-                    <label class="inline-flex items-center">
-                      <input id="view_report" type="radio" name="view_type" value="report"
-                        {% if request.values.get('view_type') == 'report' %}checked{% endif %}
-                        onclick="this.form.action='{{ url_for('apps.match_reports') }}'; this.form.submit();">
-                        <span class="ml-2 text-slate-700 dark:text-zink-100">Report</span>
-                    </label>
+
+                  <!-- ✅ Scorecard -->
+                  <label class="inline-flex items-center">
+                    <input type="radio" name="view_type" value="scorecard"
+                      class="form-radio text-custom-500"
+                      {% if request.values.get('view_type', 'scorecard') == 'scorecard' %}checked{% endif %}
+                      onchange="this.form.action='{{ url_for('apps.match_center') }}'; this.form.submit();">
+                    <span class="ml-2 text-slate-700 dark:text-zink-100">Scorecard</span>
+                  </label>
+
+                  <!-- ✅ Report -->
+                  <label class="inline-flex items-center">
+                    <input id="view_report" type="radio" name="view_type" value="report"
+                      {% if request.values.get('view_type') == 'report' %}checked{% endif %}
+                      onclick="this.form.action='{{ url_for('apps.match_reports') }}'; this.form.submit();">
+                      <span class="ml-2 text-slate-700 dark:text-zink-100">Report</span>
+                  </label>
+
+
                 </div>
+
 
                 <!-- Generate Button -->
                 <!-- Generate & View Dashboard Buttons -->
@@ -92,7 +138,7 @@
                 document.getElementById("view-dashboard-btn").addEventListener("click", async function() {
                     const tournament = document.getElementById("tournament")?.value?.trim() || "";
                     const team = document.getElementById("team")?.value?.trim() || "";
-                    const match = document.getElementById("matches")?.value?.trim() || "";
+                    const match = document.getElementById("match")?.value?.trim() || "";
 
                     if (!tournament || !team || !match) {
                         alert("Please select Tournament, Team, and Match before viewing dashboard.");
@@ -171,25 +217,88 @@
       </div>
     </div>
 
-    <!-- Last 12 deliveries -->
-    {% if last_12_balls %}
+    <!-- Last 12 deliveries: Always show the card -->
     <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
       <div class="card-body">
-        <h5 class="text-md font-semibold text-slate-700 dark:text-zink-100 mb-3">Last 12 Deliveries</h5>
-        <div class="flex flex-wrap justify-center gap-2">
-          {% for ball in last_12_balls %}
-            {% if ball == 'W' %}
-              <span class="w-8 h-8 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold">W</span>
-            {% elif ball|int(default=-1) >= 0 %}
-              <span class="w-8 h-8 flex items-center justify-center rounded-full border border-slate-400 text-slate-700 dark:text-zink-100 text-xs font-semibold">{{ ball }}</span>
-            {% else %}
-              <span class="w-10 h-8 flex items-center justify-center rounded-full border border-slate-400 text-slate-700 dark:text-zink-100 text-xs font-semibold">{{ ball }}</span>
-            {% endif %}
-          {% endfor %}
-        </div>
+        <h5 class="text-md font-semibold text-slate-700 dark:text-zink-100 mb-3">
+          Last 12 Deliveries
+        </h5>
+
+        {% set current_inning = selected_inning|string %}
+
+        {# ✅ last_12_balls can be LIST or DICT #}
+        {% if last_12_balls is mapping %}
+          {% set last12_current = last_12_balls[current_inning] if current_inning in last_12_balls else [] %}
+        {% else %}
+          {% set last12_current = last_12_balls if last_12_balls else [] %}
+        {% endif %}
+
+
+        {% if last12_current and last12_current|length > 0 %}
+          <div class="flex flex-wrap justify-center gap-2" id="last12-container">
+            {% for ball in last12_current %}
+              {% if ball == 'W' %}
+                <span class="w-8 h-8 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold">W</span>
+              {% else %}
+                <span class="w-8 h-8 flex items-center justify-center rounded-full border border-slate-400 text-slate-700 dark:text-zink-100 text-xs font-semibold">{{ ball }}</span>
+              {% endif %}
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-center text-slate-500 dark:text-zink-300" id="last12-container">
+            No delivery data available.
+          </div>
+        {% endif %}
       </div>
     </div>
-    {% endif %}
+
+    <script>
+      const last12Data = {{ last_12_balls|tojson }};
+
+      function renderLast12(inningNo){
+        const wrap = document.getElementById("last12-container");
+        if(!wrap) return;
+
+        let data = [];
+
+        if (Array.isArray(last12Data)) {
+          data = last12Data;
+        } else {
+          data = last12Data[String(inningNo)] || [];
+        }
+
+
+        if(!data.length){
+          wrap.innerHTML = `<div class="text-center text-slate-500 dark:text-zink-300 w-full">No delivery data available.</div>`;
+          return;
+        }
+
+        wrap.innerHTML = "";
+        data.forEach(ball => {
+          const span = document.createElement("span");
+
+          if(ball === "W"){
+            span.className = "w-8 h-8 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold";
+            span.textContent = "W";
+          } else {
+            span.className = "w-8 h-8 flex items-center justify-center rounded-full border border-slate-400 text-slate-700 dark:text-zink-100 text-xs font-semibold";
+            span.textContent = ball;
+          }
+          wrap.appendChild(span);
+        });
+      }
+
+      // ✅ update last12 when inning changes
+      document.querySelectorAll(".inning-tab").forEach(btn => {
+        btn.addEventListener("click", function() {
+          const inn = this.dataset.inning;
+          renderLast12(inn);
+        });
+      });
+    </script>
+
+
+
 
     <!-- Tabs Card -->
     <div class="card bg-white dark:bg-zink-800 shadow-md rounded-xl mt-6">
@@ -199,15 +308,33 @@
         </div>
 
         <!-- Innings Buttons -->
+        <!-- Innings Buttons -->
         <div class="flex flex-wrap gap-2 mt-4">
           {% for inn, data in scorecard_data.items() %}
-            {% set label = (data.meta.TeamShortName or data.meta.TeamName or 'Team') ~ ' ' ~ inn ~ ' Inns' %}
+
+            {# ✅ Team short name from match_innings (DB) #}
+            {% set team_short = '' %}
+            {% if match_innings %}
+              {% for mi in match_innings %}
+                {% if mi.Inn_Inning|string == inn|string %}
+                  {% set team_short = mi.TeamShortName %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+
+            {# ✅ fallback if still missing #}
+            {% if not team_short %}
+              {% set team_short = data.meta.TeamShortName or data.meta.TeamName or 'Team' %}
+            {% endif %}
+
             <button class="inning-tab px-4 py-1.5 rounded-full text-sm font-medium {% if loop.first %}bg-custom-500 text-white{% else %}bg-slate-200 dark:bg-zink-700 text-slate-700 dark:text-zink-200{% endif %}"
                     data-inning="{{ inn }}">
-              {{ label }}
+              {{ team_short }} Inns
             </button>
+
           {% endfor %}
         </div>
+
 
         <!-- Inning Scorecards -->
         <!-- Inning Scorecards -->
@@ -262,12 +389,13 @@
 
                           <!-- RIGHT 60% (Stats) -->
                           <div class="flex gap-8 w-3/5 justify-end text-sm font-medium">
+                            
                             <div class="w-8 text-center metric-cell"
                                 data-batter="{{ batter.id }}"
                                 data-player-name="{{ batter.player_name }}"
                                 data-metric="runs"
                                 data-value="{{ batter.runs }}"
-                                data-match="{{ match_header.MatchName }}"
+                                data-match="{{ match_header.MatchId }}"
                                 data-inning="{{ inn }}">
                               {{ batter.runs }}
                             </div>
@@ -277,7 +405,7 @@
                                 data-player-name="{{ batter.player_name }}"
                                 data-metric="balls"
                                 data-value="{{ batter.balls }}"
-                                data-match="{{ match_header.MatchName }}"
+                                data-match="{{ match_header.MatchId }}"
                                 data-inning="{{ inn }}">
                               {{ batter.balls }}
                             </div>
@@ -287,7 +415,7 @@
                                 data-player-name="{{ batter.player_name }}"
                                 data-metric="fours"
                                 data-value="{{ batter.fours }}"
-                                data-match="{{ match_header.MatchName }}"
+                                data-match="{{ match_header.MatchId }}"
                                 data-inning="{{ inn }}">
                               {{ batter.fours }}
                             </div>
@@ -297,15 +425,18 @@
                                 data-player-name="{{ batter.player_name }}"
                                 data-metric="sixes"
                                 data-value="{{ batter.sixes }}"
-                                data-match="{{ match_header.MatchName }}"
+                                data-match="{{ match_header.MatchId }}"
                                 data-inning="{{ inn }}">
                               {{ batter.sixes }}
                             </div>
 
+
                             <div class="w-10 text-center">
                               {{ batter.sr }}
                             </div>
+
                           </div>
+
                         </div>
 
                         <!-- 🔹 SECOND ROW: dismissal text (100%) -->
@@ -495,12 +626,13 @@
 
                         <!-- Right: Stats (aligned with Batter) -->
                         <div class="flex gap-8 w-[48%] justify-end text-sm font-medium">
+
                           <div class="w-8 text-center metric-cell"
                               data-bowler="{{ bowler.id }}"
                               data-player-name="{{ bowler.player_name }}"
-                              data-metric="O"
+                              data-metric="overs"
                               data-value="{{ bowler.overs }}"
-                              data-match="{{ match_header.MatchName }}"
+                              data-match="{{ match_header.MatchId }}"
                               data-inning="{{ inn }}">
                             {{ bowler.overs }}
                           </div>
@@ -512,9 +644,9 @@
                           <div class="w-8 text-center metric-cell"
                               data-bowler="{{ bowler.id }}"
                               data-player-name="{{ bowler.player_name }}"
-                              data-metric="R"
+                              data-metric="runs"
                               data-value="{{ bowler.runs }}"
-                              data-match="{{ match_header.MatchName }}"
+                              data-match="{{ match_header.MatchId }}"
                               data-inning="{{ inn }}">
                             {{ bowler.runs }}
                           </div>
@@ -522,9 +654,9 @@
                           <div class="w-8 text-center metric-cell"
                               data-bowler="{{ bowler.id }}"
                               data-player-name="{{ bowler.player_name }}"
-                              data-metric="W"
+                              data-metric="wickets"
                               data-value="{{ bowler.wickets }}"
-                              data-match="{{ match_header.MatchName }}"
+                              data-match="{{ match_header.MatchId }}"
                               data-inning="{{ inn }}">
                             {{ bowler.wickets }}
                           </div>
@@ -536,13 +668,16 @@
                           <div class="w-8 text-center metric-cell"
                               data-bowler="{{ bowler.id }}"
                               data-player-name="{{ bowler.player_name }}"
-                              data-metric="D"
+                              data-metric="dots"
                               data-value="{{ bowler.dots }}"
-                              data-match="{{ match_header.MatchName }}"
+                              data-match="{{ match_header.MatchId }}"
                               data-inning="{{ inn }}">
                             {{ bowler.dots }}
                           </div>
+
+
                         </div>
+
                       </summary>
                       <div class="mt-3">
                         <div class="grid grid-cols-3 gap-3 text-sm mb-3">

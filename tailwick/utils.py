@@ -141,15 +141,20 @@ def get_all_teams():
         conn = get_connection()
 
         query = """
-            SELECT DISTINCT scrM_tmMIdBattingName
+            SELECT DISTINCT scrM_tmMIdBatting, scrM_tmMIdBattingName
             FROM tblscoremaster
-            WHERE scrM_tmMIdBattingName IS NOT NULL
+            WHERE scrM_tmMIdBatting IS NOT NULL
+              AND scrM_tmMIdBattingName IS NOT NULL
               AND scrM_tmMIdBattingName <> ''
         """
         df = pd.read_sql(query, conn)
         conn.close()
 
-        teams = sorted(df['scrM_tmMIdBattingName'].dropna().unique())
+        teams = [
+            {"id": int(row['scrM_tmMIdBatting']), "name": row['scrM_tmMIdBattingName']}
+            for _, row in df.iterrows() if pd.notnull(row['scrM_tmMIdBatting'])
+        ]
+        teams = sorted(teams, key=lambda x: x['name'])
         print(f"✅ Loaded {len(teams)} total teams.")
         return teams
 
@@ -276,7 +281,7 @@ def get_all_tournaments(association_id=None):
         conn.close()
 
         tournaments = [
-            {"value": int(row['trnM_Id']), "label": row['trnM_TournamentName']}
+            {"id": int(row['trnM_Id']), "name": row['trnM_TournamentName']}
             for _, row in df.iterrows()
         ]
         print(f"✅ Loaded tournaments for association_id={association_id}: {len(tournaments)} found")
@@ -355,11 +360,12 @@ def get_teams_by_tournament(tournament_id):
     try:
         conn = get_connection()
         query = """
-            SELECT DISTINCT s.scrM_tmMIdBattingName AS TeamName
+            SELECT DISTINCT s.scrM_tmMIdBatting, s.scrM_tmMIdBattingName
             FROM tblscoremaster s
             INNER JOIN tblmatchmaster m ON s.scrM_MchMId = m.mchM_Id
             INNER JOIN tbltournaments t ON m.mchM_TrnMId = t.trnM_Id
             WHERE t.trnM_Id = %s
+              AND s.scrM_tmMIdBatting IS NOT NULL
               AND s.scrM_tmMIdBattingName IS NOT NULL
               AND s.scrM_tmMIdBattingName <> ''
             ORDER BY s.scrM_tmMIdBattingName
@@ -371,7 +377,11 @@ def get_teams_by_tournament(tournament_id):
             print(f"⚠️ No teams found for tournament {tournament_id}")
             return []
 
-        teams = sorted(df["TeamName"].unique().tolist())
+        teams = [
+            {"id": int(row['scrM_tmMIdBatting']), "name": row['scrM_tmMIdBattingName']}
+            for _, row in df.iterrows() if pd.notnull(row['scrM_tmMIdBatting'])
+        ]
+        teams = sorted(teams, key=lambda x: x['name'])
         print(f"✅ Filtered {len(teams)} teams for tournament {tournament_id}: {teams}")
         return teams
 
@@ -397,10 +407,10 @@ def get_matches_by_team(team, tournament_id=None):
 
         if tournament_id:
             query = """
-                SELECT DISTINCT m.mchM_MatchName, m.mchM_StartDateTime
+                SELECT DISTINCT m.mchM_Id, m.mchM_MatchName, m.mchM_StartDateTime
                 FROM tblmatchmaster m
                 INNER JOIN tblscoremaster s ON s.scrM_MchMId = m.mchM_Id
-                WHERE (s.scrM_tmMIdBattingName = %s OR s.scrM_tmMIdBowlingName = %s)
+                WHERE (s.scrM_tmMIdBatting = %s OR s.scrM_tmMIdBowling = %s)
                   AND m.mchM_TrnMId = %s
                   AND m.mchM_MatchName IS NOT NULL
                 ORDER BY m.mchM_StartDateTime DESC
@@ -408,10 +418,10 @@ def get_matches_by_team(team, tournament_id=None):
             df = pd.read_sql(query, conn, params=(team, team, tournament_id))
         else:
             query = """
-                SELECT DISTINCT m.mchM_MatchName, m.mchM_StartDateTime
+                SELECT DISTINCT m.mchM_Id, m.mchM_MatchName, m.mchM_StartDateTime
                 FROM tblmatchmaster m
                 INNER JOIN tblscoremaster s ON s.scrM_MchMId = m.mchM_Id
-                WHERE (s.scrM_tmMIdBattingName = %s OR s.scrM_tmMIdBowlingName = %s)
+                WHERE (s.scrM_tmMIdBatting = %s OR s.scrM_tmMIdBowling = %s)
                   AND m.mchM_MatchName IS NOT NULL
                 ORDER BY m.mchM_StartDateTime DESC
             """
@@ -423,7 +433,10 @@ def get_matches_by_team(team, tournament_id=None):
             print(f"⚠️ No matches found for team {team} (tournament={tournament_id})")
             return []
 
-        matches = df["mchM_MatchName"].dropna().unique().tolist()
+        matches = [
+            {"id": int(row["mchM_Id"]), "label": row["mchM_MatchName"]}
+            for _, row in df.iterrows() if pd.notnull(row["mchM_Id"])
+        ]
         print(f"✅ Found {len(matches)} matches for team={team}, tournament={tournament_id}")
         return matches
 
@@ -435,26 +448,29 @@ def get_matches_by_team(team, tournament_id=None):
 
 
  
-def get_days_innings_sessions_by_matches(matches):
+def get_days_innings_sessions_by_matches(match_ids):
     """
-    Fetch distinct days, innings, and sessions for the given match names.
+    Fetch distinct days, innings, and sessions for the given match IDs.
     Works with MySQL (pymysql).
     """
     import pandas as pd
 
     try:
-        if not matches:
+        if not match_ids:
             return [], [], []
 
-        placeholders = ",".join(["%s"] * len(matches))
+        # ✅ Ensure match_ids clean
+        match_ids = [str(x) for x in match_ids if x]
+
+        placeholders = ",".join(["%s"] * len(match_ids))
         query = f"""
             SELECT DISTINCT scrM_DayNo, scrM_InningNo, scrM_SessionNo
             FROM tblscoremaster
-            WHERE scrM_MatchName IN ({placeholders})
+            WHERE scrM_MchMId IN ({placeholders})
         """
 
         conn = get_connection()
-        df = pd.read_sql(query, conn, params=tuple(matches))
+        df = pd.read_sql(query, conn, params=tuple(match_ids))
         conn.close()
 
         days = sorted(df["scrM_DayNo"].dropna().unique(), key=lambda x: int(x))
@@ -472,88 +488,153 @@ def get_days_innings_sessions_by_matches(matches):
 
 
 
-def get_players_by_match(matches, day=None, inning=None, session=None):
+
+def get_players_by_match(match_ids, day=None, inning=None, session=None):
     """
-    Fetch distinct batters and bowlers for the given matches,
-    with optional filters for day, inning, and session.
-    Works with MySQL (pymysql).
+    ✅ Returns batter + bowler list as dicts:
+    [
+      {"id": 123, "name": "Rohit Sharma (RHB)"},
+      ...
+    ]
+    So UI shows name, backend queries by id.
     """
+
     import pandas as pd
 
-    if not matches:
+    if not match_ids:
         return [], []
 
-    try:
-        conn = get_connection()
+    match_ids = [str(x).strip() for x in match_ids if str(x).strip()]
 
-        placeholders = ",".join(["%s"] * len(matches))
+    conn = get_connection()
+    try:
+        placeholders = ",".join(["%s"] * len(match_ids))
+
         query = f"""
-            SELECT DISTINCT 
-                scrM_PlayMIdStrikerName AS Batter,
-                scrM_PlayMIdBowlerName AS Bowler
-            FROM tblscoremaster
-            WHERE scrM_MatchName IN ({placeholders})
-              AND scrM_PlayMIdStrikerName IS NOT NULL
-              AND scrM_PlayMIdBowlerName IS NOT NULL
+            SELECT
+                s.scrM_PlayMIdStriker AS batter_id,
+                s.scrM_PlayMIdStrikerName AS batter_name,
+                MAX(NULLIF(TRIM(s.scrM_StrikerBatterSkill), '')) AS batter_skill,
+
+                s.scrM_PlayMIdBowler AS bowler_id,
+                s.scrM_PlayMIdBowlerName AS bowler_name,
+                MAX(NULLIF(TRIM(s.scrM_BowlerSkill), '')) AS bowler_skill
+
+            FROM tblscoremaster s
+            WHERE s.scrM_MchMId IN ({placeholders})
+              AND s.scrM_IsValidBall = 1
         """
-        params = list(matches)
+
+        params = list(match_ids)
 
         if day:
-            query += " AND scrM_DayNo = %s"
+            query += " AND s.scrM_DayNo = %s"
             params.append(int(day))
+
         if inning:
-            query += " AND scrM_InningNo = %s"
+            query += " AND s.scrM_InningNo = %s"
             params.append(int(inning))
+
         if session:
-            query += " AND scrM_SessionNo = %s"
+            query += " AND s.scrM_SessionNo = %s"
             params.append(int(session))
 
+        query += """
+            GROUP BY
+                s.scrM_PlayMIdStriker, s.scrM_PlayMIdStrikerName,
+                s.scrM_PlayMIdBowler, s.scrM_PlayMIdBowlerName
+        """
+
         df = pd.read_sql(query, conn, params=tuple(params))
-        conn.close()
 
-        batters = sorted(df["Batter"].dropna().unique().tolist())
-        bowlers = sorted(df["Bowler"].dropna().unique().tolist())
+        if df.empty:
+            return [], []
 
-        print(f"✅ Found {len(batters)} batters and {len(bowlers)} bowlers")
+        # ✅ Normalize skills like (RHB)/(LHB)
+        def normalize_skill(x):
+            if pd.isna(x):
+                return ""
+            x = str(x).strip().upper()
+            # extract short code inside brackets if exists
+            import re
+            m = re.search(r"\(([A-Z]+)\)", x)
+            if m:
+                return m.group(1)
+            return x
+
+        df["batter_skill"] = df["batter_skill"].apply(normalize_skill)
+        df["bowler_skill"] = df["bowler_skill"].apply(normalize_skill)
+
+        # ✅ Build batter list (unique)
+        bat_df = (
+            df[["batter_id", "batter_name", "batter_skill"]]
+            .dropna(subset=["batter_id"])
+            .drop_duplicates(subset=["batter_id"])
+        )
+        batters = []
+        for _, r in bat_df.iterrows():
+            pid = str(r["batter_id"]).strip()
+            nm = str(r["batter_name"]).strip()
+            sk = str(r["batter_skill"]).strip()
+            label = f"{nm} ({sk})" if sk else nm
+            batters.append({"id": pid, "name": label})
+
+        # ✅ Build bowler list (unique)
+        bowl_df = (
+            df[["bowler_id", "bowler_name", "bowler_skill"]]
+            .dropna(subset=["bowler_id"])
+            .drop_duplicates(subset=["bowler_id"])
+        )
+        bowlers = []
+        for _, r in bowl_df.iterrows():
+            pid = str(r["bowler_id"]).strip()
+            nm = str(r["bowler_name"]).strip()
+            sk = str(r["bowler_skill"]).strip()
+            label = f"{nm} ({sk})" if sk else nm
+            bowlers.append({"id": pid, "name": label})
+
         return batters, bowlers
 
     except Exception as e:
-        print("❌ get_players_by_match Error:", e)
+        print("❌ get_players_by_match error:", e)
         return [], []
+    finally:
+        conn.close()
+
+
 
 
 
 
 
 def get_filtered_score_data(
-    conn, match_names, batters=None, bowlers=None, inning=None,
-    session=None, day=None, phase=None, from_over=None, to_over=None,
-    type=None, ball_phase=None
+    conn,
+    match_ids,
+    batters=None,
+    bowlers=None,
+    inning=None,
+    session=None,
+    day=None,
+    phase=None,
+    from_over=None,
+    to_over=None,
+    type=None,
+    ball_phase=None
 ):
     import pandas as pd
 
-    if not match_names:
+    # ✅ match_ids must be list like ["880","881"]
+    if not match_ids:
         return pd.DataFrame()
 
-    # --- Step 1: Convert match names to IDs ---
-    placeholders = ",".join(["%s"] * len(match_names))
-    match_df = pd.read_sql(
-        f"""
-        SELECT mchM_Id, mchM_MatchName
-        FROM tblmatchmaster
-        WHERE mchM_MatchName IN ({placeholders})
-        """,
-        conn, params=tuple(match_names)
-    )
-    if match_df.empty:
-        print("⚠️ No match IDs found for given match names:", match_names)
+    # ✅ Ensure match IDs clean (ONLY numeric IDs)
+    match_ids = [str(x).strip() for x in match_ids if str(x).strip().isdigit()]
+    if not match_ids:
         return pd.DataFrame()
 
-    match_id_map = dict(zip(match_df["mchM_MatchName"], match_df["mchM_Id"]))
-    match_ids = list(match_id_map.values())
-
-    # --- Step 2: Base query ---
     id_placeholders = ",".join(["%s"] * len(match_ids))
+
+    # ✅ Base query
     query = f"""
         SELECT *
         FROM tblscoremaster
@@ -562,19 +643,23 @@ def get_filtered_score_data(
     """
     params = list(match_ids)
 
-    # --- Step 3: Filters ---
+    # ✅ Batter filter (ID based) -------------- FIXED
     if batters:
-        query += " AND scrM_PlayMIdStrikerName IN ({})".format(
-            ",".join(["%s"] * len(batters))
-        )
-        params.extend(batters)
+        batters = [str(x).strip() for x in batters if str(x).strip().isdigit()]
+        if batters:
+            bat_placeholders = ",".join(["%s"] * len(batters))
+            query += f" AND scrM_PlayMIdStriker IN ({bat_placeholders})"
+            params.extend(batters)
 
+    # ✅ Bowler filter (ID based) -------------- FIXED
     if bowlers:
-        query += " AND scrM_PlayMIdBowlerName IN ({})".format(
-            ",".join(["%s"] * len(bowlers))
-        )
-        params.extend(bowlers)
+        bowlers = [str(x).strip() for x in bowlers if str(x).strip().isdigit()]
+        if bowlers:
+            bowl_placeholders = ",".join(["%s"] * len(bowlers))
+            query += f" AND scrM_PlayMIdBowler IN ({bowl_placeholders})"
+            params.extend(bowlers)
 
+    # ✅ inning/session/day -------------------- FIXED (safe int)
     if inning:
         query += " AND scrM_InningNo = %s"
         params.append(int(inning))
@@ -587,25 +672,122 @@ def get_filtered_score_data(
         query += " AND scrM_DayNo = %s"
         params.append(int(day))
 
+    # ✅ Over range ---------------------------- FIXED (safe int + allow float overs)
     if from_over or to_over:
-        if from_over and to_over:
+        try:
+            from_over_val = int(float(from_over)) if from_over not in (None, "", "None") else None
+        except:
+            from_over_val = None
+
+        try:
+            to_over_val = int(float(to_over)) if to_over not in (None, "", "None") else None
+        except:
+            to_over_val = None
+
+        if from_over_val is not None and to_over_val is not None:
             query += " AND scrM_OverNo BETWEEN %s AND %s"
-            params.extend([int(from_over), int(to_over)])
-        elif from_over:
+            params.extend([from_over_val, to_over_val])
+        elif from_over_val is not None:
             query += " AND scrM_OverNo >= %s"
-            params.append(int(from_over))
-        elif to_over:
+            params.append(from_over_val)
+        elif to_over_val is not None:
             query += " AND scrM_OverNo <= %s"
-            params.append(int(to_over))
+            params.append(to_over_val)
 
+    # ✅ Sorting
+    query += " ORDER BY scrM_InningNo, scrM_OverNo, scrM_DelNo"
 
-    # --- Step 4: Execute query ---
+    # ✅ Execute
     df = pd.read_sql(query, conn, params=tuple(params))
     print(f"✅ get_filtered_score_data loaded {len(df)} rows")
 
-    # Map match IDs back to names
-    df["MatchName"] = df["scrM_MchMId"].map({v: k for k, v in match_id_map.items()})
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    # ✅ Convert numeric for safe filtering ---------------- FIXED (more columns)
+    for col in ["scrM_OverNo", "scrM_DelNo", "scrM_InningNo", "scrM_IsValidBall"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+
+    # ✅ PHASE FILTER (optional) --------------------------- FIXED (skip if column missing)
+    if phase and "scrM_OverNo" in df.columns:
+        sel_phase = str(phase).strip().lower()
+
+        try:
+            # Default T20
+            pp_end = 6
+            middle_end = 15
+
+            if sel_phase not in ("all", "", "none"):
+                if "power" in sel_phase:
+                    df = df[df["scrM_OverNo"] <= pp_end]
+                elif "middle" in sel_phase:
+                    df = df[(df["scrM_OverNo"] > pp_end) & (df["scrM_OverNo"] <= middle_end)]
+                elif "death" in sel_phase or "slog" in sel_phase:
+                    df = df[df["scrM_OverNo"] > middle_end]
+
+        except Exception as e:
+            print("⚠️ phase filtering failed:", e)
+
+    # ✅ BALL PHASE FILTER (optional) ---------------------- FIXED (safe group col)
+    if ball_phase and "scrM_OverNo" in df.columns and "scrM_DelNo" in df.columns:
+        sel_bp = str(ball_phase).strip().lower()
+
+        try:
+            df["ball_index"] = (df["scrM_OverNo"] - 1) * 6 + df["scrM_DelNo"]
+
+            key_col = "scrM_PlayMIdStriker" if (str(type).lower() == "batter") else "scrM_PlayMIdBowler"
+
+            if key_col in df.columns:
+                phase_dfs = []
+                for _, sub in df.groupby(key_col, group_keys=False):
+                    sub = sub.sort_values(["scrM_OverNo", "scrM_DelNo"]).reset_index(drop=True)
+                    total = len(sub)
+
+                    if total <= 10:
+                        phase_dfs.append(sub)
+                        continue
+
+                    if "first" in sel_bp:
+                        phase_dfs.append(sub.head(10))
+                    elif "last" in sel_bp:
+                        phase_dfs.append(sub.tail(10))
+                    elif "middle" in sel_bp:
+                        if total > 20:
+                            phase_dfs.append(sub.iloc[10:-10])
+                        else:
+                            mid_start = max(0, total // 2 - 2)
+                            mid_end = min(total, total // 2 + 2)
+                            phase_dfs.append(sub.iloc[mid_start:mid_end])
+
+                if phase_dfs:
+                    df = pd.concat(phase_dfs, ignore_index=True)
+
+        except Exception as e:
+            print("⚠️ ball_phase filtering failed:", e)
+
+    # ✅ Attach match name safely -------------------------- FIXED (conn reuse safe)
+    try:
+        match_df = pd.read_sql(
+            f"""
+            SELECT mchM_Id, mchM_MatchName
+            FROM tblmatchmaster
+            WHERE mchM_Id IN ({id_placeholders})
+            """,
+            conn,
+            params=tuple(match_ids)
+        )
+
+        if not match_df.empty:
+            id_to_name = dict(zip(match_df["mchM_Id"].astype(str), match_df["mchM_MatchName"]))
+            if "scrM_MchMId" in df.columns:
+                df["MatchName"] = df["scrM_MchMId"].astype(str).map(id_to_name)
+
+    except Exception as e:
+        print("⚠️ Could not map match ids to names:", e)
+
     return df
+
 
 
 
@@ -613,109 +795,162 @@ import pandas as pd
 import pyodbc
 
 def get_ball_by_ball_details(
-    match_names, batters=None, bowlers=None, inning=None,
-    session=None, day=None, from_over=None, to_over=None
+    match_ids,
+    batters=None,
+    bowlers=None,
+    inning=None,
+    session=None,
+    day=None,
+    from_over=None,
+    to_over=None,
+    player_id=None,
+    view_type="batter"
 ):
     """
     Fetch ball-by-ball details from MySQL with optional filters.
-    Uses scrM_VideoXFileName columns for offline video playback
-    instead of scrM_VideoXURL, and adds commentary text.
+    ✅ Uses Match IDs (scrM_MchMId)
+    ✅ Batter/Bowler filters are ID based
+    ✅ Returns Team IDs also (scrM_tmMIdBatting, scrM_tmMIdBowling)
     """
 
     import pandas as pd
 
-    if not match_names:
+    if not match_ids:
         return pd.DataFrame()
+
+    # ✅ Ensure match_ids clean
+    match_ids = [str(x).strip() for x in match_ids if str(x).strip()]
 
     conn = None
     try:
         conn = get_connection()
 
-        # Base query with MySQL placeholders
-        match_placeholders = ",".join(["%s"] * len(match_names))
+        match_placeholders = ",".join(["%s"] * len(match_ids))
+
         query = f"""
             SELECT
                 s.scrM_DelId,
+                s.scrM_MchMId,
                 s.scrM_MatchName,
+
                 s.scrM_DayNo,
                 s.scrM_SessionNo,
                 s.scrM_InningNo,
+
                 s.scrM_OverNo,
                 s.scrM_DelNo,
+
                 s.scrM_PitchXPos,
                 s.scrM_BatPitchXPos,
+
                 s.scrM_IsBoundry,
                 s.scrM_IsSixer,
+
                 s.scrM_WideRuns,
-                s.scrM_DeliveryType_zName,
-                s.scrM_tmMIdBowlingName,
-                s.scrM_PlayMIdStriker,          
-                s.scrM_PlayMIdStrikerName,
-                s.scrM_PlayMIdNonStrikerName,
-                s.scrM_PlayMIdBowler,           
-                s.scrM_PlayMIdBowlerName,
-                s.scrM_tmMIdBattingName,
-                s.scrM_IsValidBall,
                 s.scrM_NoBallRuns,
-                s.scrM_BatsmanRuns,
-                s.scrM_DelRuns,
-                s.scrM_IsWicket,
-                s.scrM_IsNoBall,
-                s.scrM_IsWideBall,
                 s.scrM_ByeRuns,
                 s.scrM_LegByeRuns,
                 s.scrM_PenaltyRuns,
+
+                s.scrM_DeliveryType_zName,
+
+                -- ✅ TEAM IDS + NAMES (IMPORTANT)
+                s.scrM_tmMIdBatting,
+                s.scrM_tmMIdBattingName,
+                s.scrM_tmMIdBowling,
+                s.scrM_tmMIdBowlingName,
+
+                -- ✅ PLAYER IDS + NAMES
+                s.scrM_PlayMIdStriker,
+                s.scrM_PlayMIdStrikerName,
+                s.scrM_PlayMIdNonStrikerName,
+
+                s.scrM_PlayMIdBowler,
+                s.scrM_PlayMIdBowlerName,
+
+                s.scrM_IsValidBall,
+                s.scrM_BatsmanRuns,
+                s.scrM_DelRuns,
+
+                s.scrM_IsWicket,
+                s.scrM_IsNoBall,
+                s.scrM_IsWideBall,
+
                 s.scrM_playMIdCaughtName,
                 s.scrM_playMIdRunOutName,
                 s.scrM_playMIdStumpingName,
+
                 s.scrM_PitchArea_zName,
                 s.scrM_BatPitchArea_zName,
+
                 s.scrM_ShotType_zName,
                 s.scrM_BowlerSkill,
+
                 s.scrM_Wagon_x,
                 s.scrM_Wagon_y,
                 s.scrM_WagonArea_z,
                 s.scrM_WagonArea_zName,
+
                 s.scrM_PitchX,
                 s.scrM_PitchY,
+
                 s.scrM_StrikerBatterSkill,
                 s.scrM_DecisionFinal_zName,
+
                 s.scrM_PitchXPos AS scrM_Line,
                 s.scrM_PitchYPos AS scrM_Length,
+
                 s.scrM_Video1FileName,
                 s.scrM_Video2FileName,
                 s.scrM_Video3FileName,
                 s.scrM_Video4FileName,
                 s.scrM_Video5FileName,
                 s.scrM_Video6FileName,
+
                 s.scrM_Video1URL,
                 s.scrM_Video2URL,
                 s.scrM_Video3URL,
                 s.scrM_Video4URL,
                 s.scrM_Video5URL,
                 s.scrM_Video6URL,
+
                 s.scrM_IsBeaten,
                 s.scrM_IsUncomfort
+
             FROM tblscoremaster s
-            WHERE s.scrM_MatchName IN ({match_placeholders})
+            WHERE s.scrM_MchMId IN ({match_placeholders})
         """
 
-        # Collect params
-        params = list(match_names)
+        params = list(match_ids)
 
-        # Apply filters
+        # ---------------- ✅ BATTER FILTER (ID based) ----------------
         if batters:
-            query += " AND s.scrM_PlayMIdStrikerName IN ({})".format(
-                ",".join(["%s"] * len(batters))
-            )
-            params.extend(batters)
+            batters = [str(x).strip() for x in batters if str(x).strip().isdigit()]
+            if batters:
+                query += " AND s.scrM_PlayMIdStriker IN ({})".format(
+                    ",".join(["%s"] * len(batters))
+                )
+                params.extend(batters)
 
+        # ---------------- ✅ BOWLER FILTER (ID based) ----------------
         if bowlers:
-            query += " AND s.scrM_PlayMIdBowlerName IN ({})".format(
-                ",".join(["%s"] * len(bowlers))
-            )
-            params.extend(bowlers)
+            bowlers = [str(x).strip() for x in bowlers if str(x).strip().isdigit()]
+            if bowlers:
+                query += " AND s.scrM_PlayMIdBowler IN ({})".format(
+                    ",".join(["%s"] * len(bowlers))
+                )
+                params.extend(bowlers)
 
+        # ---------------- ✅ PLAYER DROPDOWN FILTER ----------------
+        if player_id and str(player_id).strip().isdigit():
+            pid = int(str(player_id).strip())
+            if str(view_type).lower().strip() == "bowler":
+                query += " AND s.scrM_PlayMIdBowler = %s"
+            else:
+                query += " AND s.scrM_PlayMIdStriker = %s"
+            params.append(pid)
+
+        # ---------------- ✅ OTHER FILTERS ----------------
         if inning:
             query += " AND s.scrM_InningNo = %s"
             params.append(int(inning))
@@ -739,17 +974,14 @@ def get_ball_by_ball_details(
                 query += " AND s.scrM_OverNo <= %s"
                 params.append(int(to_over))
 
-        # Order by ball sequence
         query += " ORDER BY s.scrM_InningNo, s.scrM_OverNo, s.scrM_DelNo"
 
-        # Run query safely with params (tuple)
         df = pd.read_sql(query, conn, params=tuple(params))
 
-        # Add commentary column
         if not df.empty:
             df["commentary"] = df.apply(generate_commentary, axis=1)
 
-        print(f"✅ get_ball_by_ball_details loaded {len(df)} rows")
+        print(f"✅ get_ball_by_ball_details loaded {len(df)} rows | player_id={player_id} | view_type={view_type}")
         return df
 
     except Exception as e:
@@ -759,6 +991,10 @@ def get_ball_by_ball_details(
     finally:
         if conn:
             conn.close()
+
+
+
+
 
 
 
@@ -4060,10 +4296,9 @@ def generate_kpi_with_summary_tables(df, selected_type, player_vs_player_tables=
 
     return combined_tables
 
-def get_match_header(match_name):
+def get_match_header(match_id):
     """
-    Fetch match header info for given match name.
-    Fixed table names: tblmatches -> tblmatchmaster, tblgrounds -> tblgroundmaster
+    Fetch match header info for given match id.
     """
     import pandas as pd
     try:
@@ -4072,7 +4307,7 @@ def get_match_header(match_name):
         WITH LatestScore AS (
             SELECT scrM_DayNo, scrM_SessionNo
             FROM tblscoremaster
-            WHERE scrM_MatchName = %s
+            WHERE scrM_MchMId = %s
             ORDER BY scrM_DayNo DESC, scrM_SessionNo DESC
             LIMIT 1
         ),
@@ -4080,7 +4315,7 @@ def get_match_header(match_name):
             SELECT mi.inn_Day AS Inn_Day, mi.inn_Session AS Inn_Session
             FROM tblmatchinnings mi
             INNER JOIN tblmatchmaster m ON mi.inn_mchMId = m.mchM_Id
-            WHERE m.mchM_MatchName = %s
+            WHERE m.mchM_Id = %s
             ORDER BY mi.inn_Day DESC, mi.inn_Session DESC
             LIMIT 1
         )
@@ -4107,9 +4342,9 @@ def get_match_header(match_name):
         LEFT JOIN tblgroundmaster g ON m.mchM_grdMId = g.grdM_Id
         LEFT JOIN LatestScore ls ON 1=1
         LEFT JOIN LatestInnings li ON 1=1
-        WHERE m.mchM_MatchName = %s
+        WHERE m.mchM_Id = %s
         """
-        df = pd.read_sql(query, conn, params=(match_name, match_name, match_name))
+        df = pd.read_sql(query, conn, params=(match_id, match_id, match_id))
         conn.close()
         return df.to_dict(orient="records")[0] if not df.empty else None
 
@@ -4120,9 +4355,10 @@ def get_match_header(match_name):
 
 
 
-def get_match_innings(match_name):
+def get_match_innings(match_id):
+
     """
-    Fetch innings summary for a given match (ordered by Inn_Inning).
+    Fetch innings summary for a given match (ordered by Inn_Inning) using match id.
     Returns list of dicts with TeamShortName, InningNo, Runs, Wickets, Overs.
     Works with MySQL (pymysql).
     """
@@ -4142,11 +4378,11 @@ def get_match_innings(match_name):
         FROM tblmatchinnings i
         INNER JOIN tblmatchmaster m ON i.Inn_mchMId = m.mchM_Id
         INNER JOIN tblteammaster tm ON i.Inn_tmMIdBatting = tm.tmM_Id
-        WHERE m.mchM_MatchName = %s
+        WHERE m.mchM_Id = %s
         ORDER BY i.Inn_Inning
         """
 
-        df = pd.read_sql(query, conn, params=(match_name,))
+        df = pd.read_sql(query, conn, params=(match_id,))
         conn.close()
 
         # compute a display-friendly overs string (e.g., 17.2 for 17 overs and 2 deliveries)
@@ -4174,11 +4410,13 @@ def get_match_innings(match_name):
         return []
 
     
-def get_last_12_deliveries(match_name):
+def get_last_12_deliveries(match_id):
     """
-    Fetch the last 12 deliveries of a given match for a quick score visualization.
+    Fetch last 12 deliveries for a match (for score visualization).
     Works with MySQL (pymysql).
+    Uses scrM_MchMId (match_id) ✅
     """
+
     import pandas as pd
 
     try:
@@ -4193,29 +4431,37 @@ def get_last_12_deliveries(match_name):
                 scrM_IsWideBall,
                 scrM_WideRuns
             FROM tblscoremaster
-            WHERE scrM_MatchName = %s
-            ORDER BY scrM_InningNo DESC, scrM_OverNo DESC, scrM_DelNo DESC
+            WHERE scrM_MchMId = %s
+            ORDER BY scrM_DelId DESC
             LIMIT 12
         """
 
-        df = pd.read_sql(query, conn, params=(match_name,))
+        df = pd.read_sql(query, conn, params=(match_id,))
         conn.close()
 
         deliveries = []
-        for _, row in df.iterrows():
-            if row["scrM_IsWicket"] == 1:
-                deliveries.append("W")
-            elif row["scrM_IsNoBall"] == 1:
-                nb_runs = int(row["scrM_NoBallRuns"]) if row["scrM_NoBallRuns"] else 0
-                deliveries.append(f"{nb_runs}NB" if nb_runs > 0 else "NB")
-            elif row["scrM_IsWideBall"] == 1:
-                wide_runs = int(row["scrM_WideRuns"]) if row["scrM_WideRuns"] else 0
-                deliveries.append(f"{wide_runs}Wd" if wide_runs > 0 else "Wd")
-            else:
-                runs = int(row["scrM_BatsmanRuns"])
-                deliveries.append(str(runs) if runs > 0 else "·")  # dot ball
 
-        # Reverse so latest ball is on the right
+        for _, row in df.iterrows():
+            # ✅ Wicket
+            if int(row.get("scrM_IsWicket", 0)) == 1:
+                deliveries.append("W")
+
+            # ✅ No ball
+            elif int(row.get("scrM_IsNoBall", 0)) == 1:
+                nb_runs = int(row["scrM_NoBallRuns"]) if pd.notna(row["scrM_NoBallRuns"]) else 0
+                deliveries.append(f"{nb_runs}NB" if nb_runs > 0 else "NB")
+
+            # ✅ Wide
+            elif int(row.get("scrM_IsWideBall", 0)) == 1:
+                wide_runs = int(row["scrM_WideRuns"]) if pd.notna(row["scrM_WideRuns"]) else 0
+                deliveries.append(f"{wide_runs}Wd" if wide_runs > 0 else "Wd")
+
+            # ✅ Normal delivery
+            else:
+                runs = int(row["scrM_BatsmanRuns"]) if pd.notna(row["scrM_BatsmanRuns"]) else 0
+                deliveries.append(str(runs) if runs > 0 else "·")
+
+        # ✅ Reverse so latest ball is on right side
         return list(reversed(deliveries))
 
     except Exception as e:
@@ -4223,12 +4469,13 @@ def get_last_12_deliveries(match_name):
         return []
 
 
+
 import pyodbc
 import pandas as pd
 
-def get_ball_by_ball_data(match_name):
+def get_ball_by_ball_data(match_id):
     """
-    Fetch ball-by-ball data for a given match using MatchName.
+    Fetch ball-by-ball data for a given match using Match ID (scrM_MchMId).
     Works with MySQL (pymysql).
     """
     import pandas as pd
@@ -4239,6 +4486,8 @@ def get_ball_by_ball_data(match_name):
         query = """
             SELECT
                 scrM_DelId,
+                scrM_MchMId,
+                scrM_MatchName,
                 scrM_InningNo,
                 scrM_OverNo,
                 scrM_DelNo,
@@ -4249,10 +4498,10 @@ def get_ball_by_ball_data(match_name):
                 scrM_WideRuns,
                 scrM_DeliveryType_zName,
                 scrM_tmMIdBowlingName,
-                scrM_PlayMIdStriker,         
+                scrM_PlayMIdStriker,
                 scrM_PlayMIdStrikerName,
                 scrM_PlayMIdNonStrikerName,
-                scrM_PlayMIdBowler,          
+                scrM_PlayMIdBowler,
                 scrM_PlayMIdBowlerName,
                 scrM_tmMIdBattingName,
                 scrM_IsValidBall,
@@ -4287,11 +4536,11 @@ def get_ball_by_ball_data(match_name):
                 scrM_Video6URL,
                 scrM_StrikerBatterSkill
             FROM tblscoremaster
-            WHERE scrM_MatchName = %s
+            WHERE scrM_MchMId = %s
             ORDER BY scrM_InningNo, scrM_OverNo, scrM_DelNo
         """
 
-        df = pd.read_sql(query, conn, params=(match_name,))
+        df = pd.read_sql(query, conn, params=(str(match_id),))
         conn.close()
 
         # Normalize BatterHand column
@@ -4307,12 +4556,13 @@ def get_ball_by_ball_data(match_name):
 
         df["BatterHand"] = df["scrM_StrikerBatterSkill"].apply(normalize_hand)
 
-        print(f"✅ Loaded {len(df)} ball-by-ball rows for match {match_name}")
+        print(f"✅ Loaded {len(df)} ball-by-ball rows for match_id {match_id}")
         return df
 
     except Exception as e:
         print("❌ Error fetching ball-by-ball data:", e)
         return pd.DataFrame()
+
 
 
 
@@ -4876,7 +5126,7 @@ import pyodbc
 
 def fetch_metric_videos(batter_id=None, bowler_id=None, metric=None, match_id=None, inning_id=None):
     """
-    Fetch video file paths for a specific player + metric (runs, 4s, 6s, wickets, etc.)
+    Fetch video file paths for a specific player + metric (runs, balls, fours, sixes, wickets, dots, maidens etc.)
     Returns a list of valid video paths (absolute or static URLs).
     """
     import pandas as pd, os
@@ -4885,15 +5135,36 @@ def fetch_metric_videos(batter_id=None, bowler_id=None, metric=None, match_id=No
         print("⚠️ Missing match_id or inning_id")
         return []
 
+    # ✅ ensure numeric
+    try:
+        match_id = int(match_id)
+    except:
+        print("⚠️ match_id is not numeric:", match_id)
+        return []
+
+    try:
+        inning_id = int(inning_id)
+    except:
+        print("⚠️ inning_id is not numeric:", inning_id)
+        return []
+
     conn = None
     videos = []
+
     try:
         conn = get_connection()
 
-        # --- Base filters ---
-        where_clauses = ["scrM_MatchName = %s", "scrM_InningNo = %s", "scrM_IsValidBall = 1"]
-        params = [match_id, int(inning_id)]
+        # ✅ FIX 1: Match should be by MatchId, NOT MatchName
+        # ✅ FIX 2: Innings should match by InnId OR InnNo based on your DB column
+        # Here your DB uses scrM_InningNo so keeping it same
+        where_clauses = [
+            "scrM_MchMId = %s",
+            "scrM_InningNo = %s",
+            "scrM_IsValidBall = 1"
+        ]
+        params = [match_id, inning_id]
 
+        # --- Player filter ---
         if batter_id:
             where_clauses.append("scrM_PlayMIdStriker = %s")
             params.append(int(batter_id))
@@ -4901,41 +5172,72 @@ def fetch_metric_videos(batter_id=None, bowler_id=None, metric=None, match_id=No
             where_clauses.append("scrM_PlayMIdBowler = %s")
             params.append(int(bowler_id))
 
-        # --- Metric-specific filters ---
+        # --- Metric filter ---
         metric = (metric or "").lower().strip()
+
         if metric in ["runs", "r"]:
             where_clauses.append("scrM_BatsmanRuns > 0")
+
         elif metric in ["balls", "b"]:
-            # all valid balls (already filtered by scrM_IsValidBall)
+            # all valid balls already covered by scrM_IsValidBall = 1
             pass
+
         elif metric in ["fours", "4"]:
             where_clauses.append("scrM_BatsmanRuns = 4")
+
         elif metric in ["sixes", "6"]:
             where_clauses.append("scrM_BatsmanRuns = 6")
+
         elif metric in ["dots", "d"]:
-            where_clauses.append("(scrM_BatsmanRuns = 0 AND scrM_IsWicket = 0 AND scrM_WideRuns = 0 AND scrM_NoBallRuns = 0 AND scrM_ByeRuns = 0 AND scrM_LegByeRuns = 0)")
+            where_clauses.append("""
+                (scrM_BatsmanRuns = 0
+                 AND scrM_IsWicket = 0
+                 AND scrM_WideRuns = 0
+                 AND scrM_NoBallRuns = 0
+                 AND scrM_ByeRuns = 0
+                 AND scrM_LegByeRuns = 0)
+            """)
+
         elif metric in ["wickets", "w"]:
             where_clauses.append("scrM_IsWicket = 1")
+
         elif metric in ["maidens", "m"]:
-            # For maidens, fetch overs by bowler where total runs = 0
+            # ✅ Maiden overs only makes sense for bowler
+            if not bowler_id:
+                print("⚠️ Maiden metric requested but bowler_id missing")
+                return []
+
             maiden_query = f"""
-                SELECT DISTINCT scrM_OverNo
+                SELECT scrM_OverNo
                 FROM tblscoremaster
-                WHERE scrM_MatchName = %s AND scrM_InningNo = %s
-                      AND scrM_PlayMIdBowler = %s
+                WHERE scrM_MchMId = %s
+                  AND scrM_InningNo = %s
+                  AND scrM_PlayMIdBowler = %s
+                  AND scrM_IsValidBall = 1
                 GROUP BY scrM_OverNo
                 HAVING SUM(scrM_DelRuns) = 0
             """
-            maiden_df = pd.read_sql(maiden_query, conn, params=(match_id, int(inning_id), int(bowler_id)))
+
+            maiden_df = pd.read_sql(
+                maiden_query,
+                conn,
+                params=(match_id, inning_id, int(bowler_id))
+            )
+
             maiden_overs = maiden_df["scrM_OverNo"].tolist()
+
             if maiden_overs:
-                overs_str = ",".join(str(o) for o in maiden_overs)
-                where_clauses.append(f"scrM_OverNo IN ({overs_str})")
+                overs_placeholders = ",".join(["%s"] * len(maiden_overs))
+                where_clauses.append(f"scrM_OverNo IN ({overs_placeholders})")
+                params.extend(maiden_overs)
             else:
                 print("⚠️ No maiden overs found.")
                 return []
 
-        # --- Build final query ---
+        else:
+            print(f"⚠️ Unknown metric received: {metric} (no extra filter applied)")
+
+        # --- Final Query ---
         query = f"""
             SELECT
                 scrM_Video1FileName, scrM_Video2FileName, scrM_Video3FileName,
@@ -4947,13 +5249,12 @@ def fetch_metric_videos(batter_id=None, bowler_id=None, metric=None, match_id=No
         """
 
         df = pd.read_sql(query, conn, params=tuple(params))
-        conn.close()
 
         if df.empty:
-            print(f"⚠️ No rows found for metric={metric}")
+            print(f"⚠️ No rows found for metric={metric}, match_id={match_id}, inning_id={inning_id}")
             return []
 
-        # --- Gather videos ---
+        # --- Collect Video URLs / Local Videos ---
         for _, row in df.iterrows():
             for i in range(1, 7):
                 f_local = row.get(f"scrM_Video{i}FileName")
@@ -4961,6 +5262,7 @@ def fetch_metric_videos(batter_id=None, bowler_id=None, metric=None, match_id=No
 
                 if f_url and isinstance(f_url, str) and f_url.strip():
                     videos.append(f_url.strip())
+
                 elif f_local and isinstance(f_local, str) and f_local.strip():
                     local_path = os.path.join("static", "videos", f_local.strip())
                     if os.path.exists(local_path):
@@ -4968,17 +5270,22 @@ def fetch_metric_videos(batter_id=None, bowler_id=None, metric=None, match_id=No
                     else:
                         videos.append(os.path.abspath(local_path))
 
-        # De-duplicate & return
+        # De-duplicate
         videos = list(dict.fromkeys(videos))
-        print(f"✅ fetch_metric_videos({metric}) -> {len(videos)} files found")
+        print(f"✅ fetch_metric_videos(metric={metric}) -> {len(videos)} files found")
         return videos
 
     except Exception as e:
         print("❌ fetch_metric_videos error:", e)
         return []
+
     finally:
-        if conn:
-            conn.close()
+        try:
+            if conn:
+                conn.close()
+        except:
+            pass
+
 
 
 
@@ -7884,8 +8191,41 @@ def release_lock(lock_path: Path) -> None:
     except Exception:
         pass
 
-def _innings_cache_path(match_name: str, inn_no: int) -> Path:
-    return SCORECARD_CACHE_DIR / f"{sanitize_filename(match_name)}_inn_{inn_no}.json"
+def _innings_cache_path(match_id: str, inn_no: int) -> Path:
+    """
+    Cache filename should always use Match ID internally.
+    Example: 880_inn_1.json
+    """
+    safe_mid = str(match_id).strip()
+    return SCORECARD_CACHE_DIR / f"{safe_mid}_inn_{inn_no}.json"
+
+def get_match_name_by_id(match_id):
+    """
+    Returns mchM_MatchName for given match_id.
+    Used only for display.
+    """
+    try:
+        if not match_id:
+            return None
+
+        conn = get_connection()
+        df = pd.read_sql("""
+            SELECT mchM_Id, mchM_MatchName
+            FROM tblmatchmaster
+            WHERE mchM_Id = %s
+            LIMIT 1
+        """, conn, params=(int(match_id),))
+        conn.close()
+
+        if df.empty:
+            return None
+
+        return str(df.iloc[0]["mchM_MatchName"]).strip()
+
+    except Exception as e:
+        print("⚠️ get_match_name_by_id error:", e)
+        return None
+
 
 def _match_cache_path(match_name: str) -> Path:
     return SCORECARD_CACHE_DIR / f"{sanitize_filename(match_name)}.json"
@@ -7910,24 +8250,107 @@ def _to_float(val):
 
 
 def _build_innings_json(match_name: str, inn_no: int) -> dict:
-    print(f"Building innings JSON for {match_name}, innings {inn_no}")
     """
-    Build JSON for a single innings.
-    Includes batter stats, bowler tables, wagon wheels,
-    partnership chart, fall of wickets, bowlers (with vs_batters),
-    and an innings summary.
+    ✅ FINAL UPDATED VERSION (Match-ID Safe + Display Friendly)
 
-    Also registers ball-by-ball df in BATTER_DATA for wagonwheel API.
+    - Supports match_id OR match_name input
+    - Resolves match_id & match_display_name properly
+    - Always fetches ball-by-ball using match_id ✅
+    - Fixes blank scorecard issue ✅
+    - Adds display fields inside meta for UI:
+        ✅ MatchId
+        ✅ MatchName
+        ✅ BattingTeamName
+        ✅ BowlingTeamName
     """
+
+    import pandas as pd
+
+    print(f"✅ Building innings JSON for {match_name}, innings {inn_no}")
+
     global BATTER_DATA
+
+    # ✅ clear only at innings 1
     if inn_no == 1:
         try:
             BATTER_DATA.clear()
         except Exception:
             pass
 
+    # --------------------------------------------------------
+    # ✅ STEP 1: Resolve match_id & match_display_name
+    # --------------------------------------------------------
+    input_val = str(match_name).strip()
+    match_id = None
+    match_display_name = None
+
+    try:
+        conn = get_connection()
+
+        # CASE 1: numeric => match_id
+        if input_val.isdigit():
+            match_id = str(input_val)
+
+            df_match = pd.read_sql(
+                """
+                SELECT mchM_Id, mchM_MatchName
+                FROM tblmatchmaster
+                WHERE mchM_Id = %s
+                LIMIT 1
+                """,
+                conn,
+                params=(int(match_id),)
+            )
+
+            if not df_match.empty:
+                match_display_name = str(df_match.iloc[0]["mchM_MatchName"]).strip()
+
+        # CASE 2: match_name => resolve match_id
+        else:
+            match_display_name = input_val
+
+            df_match = pd.read_sql(
+                """
+                SELECT mchM_Id, mchM_MatchName
+                FROM tblmatchmaster
+                WHERE mchM_MatchName = %s
+                LIMIT 1
+                """,
+                conn,
+                params=(match_display_name,)
+            )
+
+            if not df_match.empty:
+                match_id = str(df_match.iloc[0]["mchM_Id"]).strip()
+                match_display_name = str(df_match.iloc[0]["mchM_MatchName"]).strip()
+
+        conn.close()
+
+    except Exception as e:
+        print("❌ Error resolving match_id/match_name:", e)
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    if not match_id:
+        return {
+            "inn_no": inn_no,
+            "batters": [],
+            "bowlers": [],
+            "meta": {
+                "MatchId": None,
+                "MatchName": input_val
+            },
+            "partnership_chart": None,
+            "fall_of_wickets": [],
+            "_error": f"match_id not found for match={input_val}"
+        }
+
+    # --------------------------------------------------------
+    # ✅ Helper: dismissal string builder
+    # --------------------------------------------------------
     def build_dismissal(row) -> str:
-        """Return a human-friendly dismissal string using schema fields."""
         mode = str(row.get("scrM_DecisionFinal_zName", "")).strip().lower()
         bowler = str(row.get("scrM_PlayMIdBowlerName", "")).strip()
 
@@ -7935,7 +8358,6 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
             caught = str(row.get("scrM_playMIdCaughtName", "")).strip()
             fielder = caught or str(row.get("scrM_PlayMIdFielderName", "")).strip()
 
-            # caught & bowled
             if fielder and bowler and fielder.lower() == bowler.lower():
                 return f"c & b {bowler}"
 
@@ -7943,43 +8365,86 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
 
         if mode == "bowled":
             return f"b {bowler}" if bowler else "bowled"
+
         if mode == "lbw":
             return f"lbw b {bowler}" if bowler else "lbw"
+
         if "run out" in mode:
             fielder = str(row.get("scrM_playMIdRunOutName", "")).strip()
             return f"run out ({fielder})" if fielder else "run out"
+
         if mode == "stumped":
             keeper = str(row.get("scrM_playMIdStumpingName", "")).strip()
             return f"st {keeper} b {bowler}" if keeper else f"st ? b {bowler}"
+
         if mode == "hit wicket":
             return f"hit wicket b {bowler}" if bowler else "hit wicket"
+
         return str(row.get("scrM_DecisionFinal_zName", "")) or ""
 
+    # --------------------------------------------------------
+    # ✅ STEP 2: Load Ball-by-ball using match_id ✅
+    # --------------------------------------------------------
     try:
-        # Acquire ball-by-ball data (your existing helper)
-        bbb_df = get_ball_by_ball_details([match_name], inning=inn_no)
-        batters, bowlers = [], []
+        # ✅ IMPORTANT FIX:
+        # get_ball_by_ball_details expects match_ids list and uses scrM_MchMId internally
+        bbb_df = get_ball_by_ball_details([match_id], inning=inn_no)
+
+        batters = []
+        bowlers = []
 
         if bbb_df is None or bbb_df.empty:
             return {
                 "inn_no": inn_no,
                 "batters": [],
                 "bowlers": [],
-                "meta": {},
+                "meta": {
+                    "MatchId": str(match_id),
+                    "MatchName": str(match_display_name or input_val)
+                },
                 "partnership_chart": None,
                 "fall_of_wickets": []
             }
 
+        # safe numeric conversion
+        for c in ["scrM_OverNo", "scrM_DelNo", "scrM_BatsmanRuns", "scrM_DelRuns"]:
+            if c in bbb_df.columns:
+                bbb_df[c] = pd.to_numeric(bbb_df[c], errors="coerce").fillna(0)
+
+        if "scrM_OverNo" in bbb_df.columns and "scrM_DelNo" in bbb_df.columns:
+            bbb_df["scrM_OverNo"] = bbb_df["scrM_OverNo"].astype(int)
+            bbb_df["scrM_DelNo"] = bbb_df["scrM_DelNo"].astype(int)
+
+        # ensure correct order
+        bbb_df = bbb_df.sort_values(["scrM_OverNo", "scrM_DelNo"], ascending=[True, True])
+
         # cumulative team runs
         bbb_df["TeamRuns"] = bbb_df["scrM_DelRuns"].cumsum()
 
-        # Ensure correct ball order
-        bbb_df = bbb_df.sort_values(
-            ["scrM_OverNo", "scrM_DelNo"],
-            ascending=[True, True]
-        )
+        # --------------------------------------------------------
+        # ✅ Extract Teams for Display
+        # --------------------------------------------------------
+        batting_team_name = None
+        bowling_team_name = None
 
-        # Build batting order based on FIRST striker appearance
+        try:
+            if "scrM_tmMIdBattingName" in bbb_df.columns:
+                batting_team_name = (
+                    bbb_df["scrM_tmMIdBattingName"].dropna().astype(str).iloc[0].strip()
+                    if not bbb_df["scrM_tmMIdBattingName"].dropna().empty else None
+                )
+            if "scrM_tmMIdBowlingName" in bbb_df.columns:
+                bowling_team_name = (
+                    bbb_df["scrM_tmMIdBowlingName"].dropna().astype(str).iloc[0].strip()
+                    if not bbb_df["scrM_tmMIdBowlingName"].dropna().empty else None
+                )
+        except Exception:
+            batting_team_name = batting_team_name
+            bowling_team_name = bowling_team_name
+
+        # --------------------------------------------------------
+        # ✅ STEP 3: Batting order = first striker appearance
+        # --------------------------------------------------------
         batting_sequence = []
         seen_batters = set()
 
@@ -7989,32 +8454,28 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
                 batting_sequence.append(striker)
                 seen_batters.add(striker)
 
-
-        # -------------------- BATTERS --------------------
+        # --------------------------------------------------------
+        # ✅ STEP 4: BATTERS TABLE
+        # --------------------------------------------------------
         for name in batting_sequence:
             g = bbb_df[bbb_df["scrM_PlayMIdStrikerName"] == name]
+            if g.empty:
+                continue
+
             runs = int(pd.to_numeric(g.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0).sum())
 
-            # ✅ Fix: count balls where wide == 0
-            balls = int((g.get("scrM_IsWideBall", 0).fillna(0) == 0).sum())
+            # balls faced (exclude wides)
+            balls = int((pd.to_numeric(g.get("scrM_IsWideBall", 0), errors="coerce").fillna(0) == 0).sum())
 
-            if "scrM_IsBoundry" in g.columns:
-                fours = int(pd.to_numeric(g.get("scrM_IsBoundry", 0), errors="coerce").fillna(0).sum())
-            else:
-                fours = int((g.get("scrM_BatsmanRuns", pd.Series(0, index=g.index)) == 4).sum())
-            if "scrM_IsSixer" in g.columns:
-                sixes = int(pd.to_numeric(g.get("scrM_IsSixer", 0), errors="coerce").fillna(0).sum())
-            else:
-                sixes = int((g.get("scrM_BatsmanRuns", pd.Series(0, index=g.index)) == 6).sum())
+            fours = int(pd.to_numeric(g.get("scrM_IsBoundry", 0), errors="coerce").fillna(0).sum()) if "scrM_IsBoundry" in g.columns else int((g["scrM_BatsmanRuns"] == 4).sum())
+            sixes = int(pd.to_numeric(g.get("scrM_IsSixer", 0), errors="coerce").fillna(0).sum()) if "scrM_IsSixer" in g.columns else int((g["scrM_BatsmanRuns"] == 6).sum())
 
-            sr = round(runs / max(1, balls) * 100, 2) if balls else 0.0
+            sr = round((runs / max(1, balls)) * 100, 2) if balls else 0.0
 
             # dismissal
-            # ✅ CORRECT DISMISSAL: pick actual wicket ball for this batter
             dismissal = "not out"
-
             wk_df = bbb_df[
-                (bbb_df["scrM_IsWicket"] == 1) &
+                (pd.to_numeric(bbb_df.get("scrM_IsWicket", 0), errors="coerce").fillna(0).astype(int) == 1) &
                 (bbb_df["scrM_PlayMIdStrikerName"] == name)
             ]
 
@@ -8024,93 +8485,91 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
                 except Exception:
                     dismissal = "out"
 
-
-
             # dots
             dots = int(
                 g[
-                    (g.get("scrM_BatsmanRuns", 0) == 0) &
-                    (g.get("scrM_WideRuns", 0) == 0) &
-                    (g.get("scrM_NoBallRuns", 0) == 0) &
-                    (g.get("scrM_ByeRuns", 0) == 0) &
-                    (g.get("scrM_LegByeRuns", 0) == 0) &
-                    (g.get("scrM_PenaltyRuns", 0) == 0)
+                    (pd.to_numeric(g.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 0) &
+                    (pd.to_numeric(g.get("scrM_WideRuns", 0), errors="coerce").fillna(0) == 0) &
+                    (pd.to_numeric(g.get("scrM_NoBallRuns", 0), errors="coerce").fillna(0) == 0) &
+                    (pd.to_numeric(g.get("scrM_ByeRuns", 0), errors="coerce").fillna(0) == 0) &
+                    (pd.to_numeric(g.get("scrM_LegByeRuns", 0), errors="coerce").fillna(0) == 0) &
+                    (pd.to_numeric(g.get("scrM_PenaltyRuns", 0), errors="coerce").fillna(0) == 0)
                 ].shape[0]
             )
 
-            ones = int((g.get("scrM_BatsmanRuns", 0) == 1).sum())
-            twos = int((g.get("scrM_BatsmanRuns", 0) == 2).sum())
-            threes = int((g.get("scrM_BatsmanRuns", 0) == 3).sum())
+            ones = int((pd.to_numeric(g.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 1).sum())
+            twos = int((pd.to_numeric(g.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 2).sum())
+            threes = int((pd.to_numeric(g.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 3).sum())
 
             bdry_balls = fours + sixes
             bdry_pct = round(bdry_balls / max(1, balls) * 100, 2)
-            bdry_freq = round(balls / max(1, bdry_balls), 1) if bdry_balls > 0 else 0
+            bdry_freq = round(balls / max(1, bdry_balls), 1) if bdry_balls else 0
             db_pct = round(dots / max(1, balls) * 100, 2)
-            db_freq = round(balls / max(1, dots), 1) if dots > 0 else 0
+            db_freq = round(balls / max(1, dots), 1) if dots else 0
+
+            # batter id
+            first_row = g.iloc[0]
+            batter_id = str(int(pd.to_numeric(first_row.get("scrM_PlayMIdStriker", -1), errors="coerce") or -1))
 
             # Batter vs Bowler table
             bowler_table = []
-            bowler_groups = g.groupby("scrM_PlayMIdBowlerName")
-            for bowler_name, gb in bowler_groups:
-                b_runs = int(pd.to_numeric(gb.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0).sum())
+            if "scrM_PlayMIdBowlerName" in g.columns:
+                for bowler_name, gb in g.groupby("scrM_PlayMIdBowlerName"):
+                    b_runs = int(pd.to_numeric(gb.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0).sum())
+                    b_balls = int((pd.to_numeric(gb.get("scrM_IsWideBall", 0), errors="coerce").fillna(0) == 0).sum())
 
-                # ✅ Fix: balls vs bowler
-                b_balls = int((gb.get("scrM_IsWideBall", 0).fillna(0) == 0).sum())
+                    b_dots = int(
+                        gb[
+                            (pd.to_numeric(gb.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 0) &
+                            (pd.to_numeric(gb.get("scrM_WideRuns", 0), errors="coerce").fillna(0) == 0) &
+                            (pd.to_numeric(gb.get("scrM_NoBallRuns", 0), errors="coerce").fillna(0) == 0) &
+                            (pd.to_numeric(gb.get("scrM_ByeRuns", 0), errors="coerce").fillna(0) == 0) &
+                            (pd.to_numeric(gb.get("scrM_LegByeRuns", 0), errors="coerce").fillna(0) == 0) &
+                            (pd.to_numeric(gb.get("scrM_PenaltyRuns", 0), errors="coerce").fillna(0) == 0)
+                        ].shape[0]
+                    )
 
-                b_dots = int(
-                    gb[
-                        (gb.get("scrM_BatsmanRuns", 0) == 0) &
-                        (gb.get("scrM_WideRuns", 0) == 0) &
-                        (gb.get("scrM_NoBallRuns", 0) == 0) &
-                        (gb.get("scrM_ByeRuns", 0) == 0) &
-                        (gb.get("scrM_LegByeRuns", 0) == 0) &
-                        (gb.get("scrM_PenaltyRuns", 0) == 0)
-                    ].shape[0]
-                )
-                b_ones = int((gb.get("scrM_BatsmanRuns", 0) == 1).sum())
-                b_twos = int((gb.get("scrM_BatsmanRuns", 0) == 2).sum())
-                b_fours = int((gb.get("scrM_BatsmanRuns", 0) == 4).sum())
-                b_sixes = int((gb.get("scrM_BatsmanRuns", 0) == 6).sum())
+                    b_ones = int((pd.to_numeric(gb.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 1).sum())
+                    b_twos = int((pd.to_numeric(gb.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 2).sum())
+                    b_fours = int((pd.to_numeric(gb.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 4).sum())
+                    b_sixes = int((pd.to_numeric(gb.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 6).sum())
 
-                bowler_table.append({
-                    "bowler": bowler_name,
-                    "runs": b_runs,
-                    "balls": b_balls,
-                    "dots": b_dots,
-                    "ones": b_ones,
-                    "twos": b_twos,
-                    "fours": b_fours,
-                    "sixes": b_sixes
-                })
+                    bowler_table.append({
+                        "bowler": str(bowler_name).strip(),
+                        "runs": b_runs,
+                        "balls": b_balls,
+                        "dots": b_dots,
+                        "ones": b_ones,
+                        "twos": b_twos,
+                        "fours": b_fours,
+                        "sixes": b_sixes
+                    })
 
             # Wagon wheel images
             ww_images = {}
-            if "scrM_BatterHand" in g.columns and not g.empty:
-                batter_hand = g["scrM_BatterHand"].dropna().iloc[0] if not g["scrM_BatterHand"].dropna().empty else "Right"
-            else:
-                batter_hand = "Right"
+
+            batter_hand = "Right"
+            if "scrM_BatterHand" in g.columns:
+                try:
+                    non_na = g["scrM_BatterHand"].dropna()
+                    if not non_na.empty:
+                        batter_hand = str(non_na.iloc[0]).strip() or "Right"
+                except Exception:
+                    batter_hand = "Right"
 
             try:
                 ww_images["all"] = generate_wagon_wheel(g, batter_hand)
                 for run_type in [1, 2, 3, 4, 6]:
                     ww_images[str(run_type)] = generate_wagon_wheel(g, batter_hand, filter_runs=run_type)
             except Exception:
-                ww_images["all"] = ww_images.get("all", "")
+                ww_images.setdefault("all", "")
                 for run_type in [1, 2, 3, 4, 6]:
                     ww_images.setdefault(str(run_type), "")
-
-            if g.empty:
-                continue   # skip this batter safely
-
-            first_row = g.iloc[0]
-
-            batter_id = str(int(first_row.get("scrM_PlayMIdStriker", -1)))
-
 
             batters.append({
                 "id": batter_id,
                 "name": name,
-                "PlayMId": int(g.iloc[0].get("scrM_PlayMIdStriker", -1)),
+                "PlayMId": int(pd.to_numeric(first_row.get("scrM_PlayMIdStriker", -1), errors="coerce") or -1),
                 "runs": runs,
                 "balls": balls,
                 "fours": fours,
@@ -8130,69 +8589,47 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
                 "hand": batter_hand
             })
 
+            # register batter df for wagonwheel
             try:
                 BATTER_DATA[batter_id] = {"df": g.copy(), "hand": batter_hand}
             except Exception:
                 pass
 
-        # -------------------- BOWLERS --------------------
+        # --------------------------------------------------------
+        # ✅ STEP 5: BOWLERS TABLE
+        # --------------------------------------------------------
         try:
-            bowler_name_to_id = {}
-            if "scrM_PlayMIdBowler" in bbb_df.columns and "scrM_PlayMIdBowlerName" in bbb_df.columns:
-                tmp = bbb_df[["scrM_PlayMIdBowler", "scrM_PlayMIdBowlerName"]].dropna()
-                for _, r in tmp.iterrows():
-                    bid = r["scrM_PlayMIdBowler"]
-                    bname = str(r["scrM_PlayMIdBowlerName"]).strip()
-                    if bname:
-                        bowler_name_to_id.setdefault(bname, bid)
-
             if "scrM_PlayMIdBowlerName" in bbb_df.columns:
                 bowler_groups = bbb_df.groupby("scrM_PlayMIdBowlerName")
-            elif "scrM_PlayMIdBowler" in bbb_df.columns:
-                bowler_groups = bbb_df.groupby("scrM_PlayMIdBowler")
             else:
                 bowler_groups = []
 
-            for bowler_key, gb in bowler_groups:
-                if "scrM_PlayMIdBowlerName" in bbb_df.columns:
-                    bowler_name = str(bowler_key).strip() or "Unknown"
-                else:
-                    bowler_name = str(gb.get("scrM_PlayMIdBowlerName", pd.Series(["Unknown"], index=gb.index)).iloc[0]).strip() or f"Bowler {bowler_key}"
+            for bowler_name, gb in bowler_groups:
+                bowler_name = str(bowler_name).strip() or "Unknown"
 
-                bowler_id = None
-                if "scrM_PlayMIdBowler" in gb.columns:
-                    try:
-                        bid_series = gb["scrM_PlayMIdBowler"].dropna()
-                        if not bid_series.empty:
-                            bid_val = bid_series.iloc[0]
-                            bowler_id = int(bid_val) if isinstance(bid_val, (int, float)) or str(bid_val).isdigit() else None
-                        else:
-                            bowler_id = bowler_name_to_id.get(bowler_name)
-                    except Exception:
-                        bowler_id = bowler_name_to_id.get(bowler_name)
-
-                # ✅ Fix: legal balls
-                legal_mask = (gb.get("scrM_IsWideBall", 0).fillna(0) == 0) & (gb.get("scrM_IsNoBall", 0).fillna(0) == 0)
+                legal_mask = (
+                    (pd.to_numeric(gb.get("scrM_IsWideBall", 0), errors="coerce").fillna(0) == 0) &
+                    (pd.to_numeric(gb.get("scrM_IsNoBall", 0), errors="coerce").fillna(0) == 0)
+                )
                 legal_balls = int(legal_mask.sum())
                 overs_str = f"{legal_balls // 6}.{legal_balls % 6}"
 
-                # Total runs on deliveries (includes byes/legbyes/wides/no-balls)
                 total_del_runs = int(pd.to_numeric(gb.get("scrM_DelRuns", 0), errors="coerce").fillna(0).sum())
-                # Subtract runs that are not charged to the bowler (byes, leg-byes, penalty)
                 bye_sum = int(pd.to_numeric(gb.get("scrM_ByeRuns", 0), errors="coerce").fillna(0).sum())
                 legbye_sum = int(pd.to_numeric(gb.get("scrM_LegByeRuns", 0), errors="coerce").fillna(0).sum())
                 penalty_sum = int(pd.to_numeric(gb.get("scrM_PenaltyRuns", 0), errors="coerce").fillna(0).sum())
-                runs_conceded = int(total_del_runs - bye_sum - legbye_sum - penalty_sum)
-                maidens = int((gb.groupby("scrM_OverNo")["scrM_DelRuns"].sum() == 0).sum()) if "scrM_OverNo" in gb.columns else 0
 
-                decisions = gb.get("scrM_DecisionFinal_zName")
-                if decisions is None:
-                    decisions = pd.Series([""] * len(gb), index=gb.index)
-                decisions_lower = decisions.astype(str).str.lower()
-                is_wicket_series = gb.get("scrM_IsWicket")
-                if is_wicket_series is None:
-                    is_wicket_series = pd.Series([0] * len(gb), index=gb.index)
-                wickets = int(((is_wicket_series == 1) & decisions_lower.isin(
+                runs_conceded = int(total_del_runs - bye_sum - legbye_sum - penalty_sum)
+
+                maidens = 0
+                if "scrM_OverNo" in gb.columns:
+                    maidens = int((gb.groupby("scrM_OverNo")["scrM_DelRuns"].sum() == 0).sum())
+
+                decisions = gb.get("scrM_DecisionFinal_zName", pd.Series([""] * len(gb), index=gb.index))
+                decisions = decisions.astype(str).str.lower()
+                is_wicket_series = pd.to_numeric(gb.get("scrM_IsWicket", 0), errors="coerce").fillna(0).astype(int)
+
+                wickets = int(((is_wicket_series == 1) & decisions.isin(
                     ["bowled", "lbw", "caught", "stumped", "hit wicket", "caught and bowled"]
                 )).sum())
 
@@ -8201,19 +8638,19 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
 
                 dots = int(
                     gb[
-                        (gb.get("scrM_BatsmanRuns", 0) == 0) &
-                        (gb.get("scrM_WideRuns", 0) == 0) &
-                        (gb.get("scrM_NoBallRuns", 0) == 0) &
-                        (gb.get("scrM_ByeRuns", 0) == 0) &
-                        (gb.get("scrM_LegByeRuns", 0) == 0) &
-                        (gb.get("scrM_PenaltyRuns", 0) == 0)
+                        (pd.to_numeric(gb.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 0) &
+                        (pd.to_numeric(gb.get("scrM_WideRuns", 0), errors="coerce").fillna(0) == 0) &
+                        (pd.to_numeric(gb.get("scrM_NoBallRuns", 0), errors="coerce").fillna(0) == 0) &
+                        (pd.to_numeric(gb.get("scrM_ByeRuns", 0), errors="coerce").fillna(0) == 0) &
+                        (pd.to_numeric(gb.get("scrM_LegByeRuns", 0), errors="coerce").fillna(0) == 0) &
+                        (pd.to_numeric(gb.get("scrM_PenaltyRuns", 0), errors="coerce").fillna(0) == 0)
                     ].shape[0]
                 )
 
-                fours = int((gb.get("scrM_BatsmanRuns", 0) == 4).sum())
-                sixes = int((gb.get("scrM_BatsmanRuns", 0) == 6).sum())
-                bdry_balls = fours + sixes
+                fours = int((pd.to_numeric(gb.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 4).sum())
+                sixes = int((pd.to_numeric(gb.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 6).sum())
 
+                bdry_balls = fours + sixes
                 bdry_pct = round(bdry_balls / max(1, legal_balls) * 100, 2)
                 bdry_freq = round(legal_balls / max(1, bdry_balls), 1) if bdry_balls else 0
                 db_pct = round(dots / max(1, legal_balls) * 100, 2)
@@ -8221,42 +8658,50 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
 
                 econ = round(runs_conceded / (legal_balls / 6), 2) if legal_balls else 0.0
 
-                # vs_batters breakdown
                 vs_batters = []
-                for batter_name, gb2 in gb.groupby("scrM_PlayMIdStrikerName"):
-                    batter_display = str(batter_name).strip() or "Unknown"
+                if "scrM_PlayMIdStrikerName" in gb.columns:
+                    for batter_name, gb2 in gb.groupby("scrM_PlayMIdStrikerName"):
+                        batter_display = str(batter_name).strip() or "Unknown"
 
-                    # ✅ Fix: balls vs batter
-                    b_balls = int((gb2.get("scrM_IsWideBall", 0).fillna(0) == 0).sum())
+                        b_balls = int((pd.to_numeric(gb2.get("scrM_IsWideBall", 0), errors="coerce").fillna(0) == 0).sum())
+                        b_runs = int(pd.to_numeric(gb2.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0).sum())
 
-                    # Use batsman runs only for batter-vs-bowler table (exclude wides/byes etc.)
-                    b_runs = int(pd.to_numeric(gb2.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0).sum())
-                    decisions2 = gb2.get("scrM_DecisionFinal_zName")
-                    if decisions2 is None:
-                        decisions2 = pd.Series([""] * len(gb2), index=gb2.index)
-                    b_wickets = int(((gb2.get("scrM_IsWicket", 0) == 1) & decisions2.astype(str).str.lower().isin(
-                        ["bowled", "lbw", "caught", "stumped", "hit wicket", "caught and bowled"]
-                    )).sum())
-                    wd_b = int(pd.to_numeric(gb2.get("scrM_WideRuns", 0), errors="coerce").fillna(0).sum())
-                    nb_b = int(pd.to_numeric(gb2.get("scrM_NoBallRuns", 0), errors="coerce").fillna(0).sum())
-                    econ_b = round(b_runs / (b_balls / 6), 2) if b_balls else 0.0
-                    b_fours = int((gb2.get("scrM_BatsmanRuns", 0) == 4).sum())
-                    b_sixes = int((gb2.get("scrM_BatsmanRuns", 0) == 6).sum())
+                        decisions2 = gb2.get("scrM_DecisionFinal_zName", pd.Series([""] * len(gb2), index=gb2.index))
+                        decisions2 = decisions2.astype(str).str.lower()
 
-                    vs_batters.append({
-                        "batter": batter_display,
-                        "balls": b_balls,
-                        "runs": b_runs,
-                        "wickets": b_wickets,
-                        "wd": wd_b,
-                        "nb": nb_b,
-                        "econ": econ_b,
-                        "fours": b_fours,
-                        "sixes": b_sixes
-                    })
+                        b_wickets = int(((pd.to_numeric(gb2.get("scrM_IsWicket", 0), errors="coerce").fillna(0).astype(int) == 1) & decisions2.isin(
+                            ["bowled", "lbw", "caught", "stumped", "hit wicket", "caught and bowled"]
+                        )).sum())
+
+                        wd_b = int(pd.to_numeric(gb2.get("scrM_WideRuns", 0), errors="coerce").fillna(0).sum())
+                        nb_b = int(pd.to_numeric(gb2.get("scrM_NoBallRuns", 0), errors="coerce").fillna(0).sum())
+                        econ_b = round(b_runs / (b_balls / 6), 2) if b_balls else 0.0
+                        b_fours = int((pd.to_numeric(gb2.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 4).sum())
+                        b_sixes = int((pd.to_numeric(gb2.get("scrM_BatsmanRuns", 0), errors="coerce").fillna(0) == 6).sum())
+
+                        vs_batters.append({
+                            "batter": batter_display,
+                            "balls": b_balls,
+                            "runs": b_runs,
+                            "wickets": b_wickets,
+                            "wd": wd_b,
+                            "nb": nb_b,
+                            "econ": econ_b,
+                            "fours": b_fours,
+                            "sixes": b_sixes
+                        })
+
+                bowler_id = None
+                if "scrM_PlayMIdBowler" in gb.columns:
+                    bid_series = gb["scrM_PlayMIdBowler"].dropna()
+                    if not bid_series.empty:
+                        try:
+                            bowler_id = int(pd.to_numeric(bid_series.iloc[0], errors="coerce"))
+                        except Exception:
+                            bowler_id = None
 
                 bowlers.append({
-                    "id": int(bowler_id) if bowler_id is not None else None,
+                    "id": bowler_id,
                     "name": bowler_name,
                     "overs": overs_str,
                     "maidens": maidens,
@@ -8274,14 +8719,18 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
                     "nb": nb_sum,
                     "vs_batters": vs_batters
                 })
+
         except Exception as e:
-            print("Error building bowlers:", e)
+            print("❌ Error building bowlers:", e)
             bowlers = []
 
-        # -------------------- Partnerships --------------------
+        # --------------------------------------------------------
+        # ✅ STEP 6: Match innings meta + partnership chart
+        # --------------------------------------------------------
         partnership_html, innings_meta = None, {}
+
         try:
-            inns = get_match_innings(match_name)
+            inns = get_match_innings(match_display_name or match_id)
             if hasattr(inns, "to_dict"):
                 inns = inns.to_dict(orient="records")
 
@@ -8289,32 +8738,22 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
                 (i for i in inns if int(i.get("Inn_Inning", -1)) == int(inn_no)),
                 {}
             )
+        except Exception:
+            innings_meta = {}
 
-            team_name = innings_meta.get("TeamShortName") or innings_meta.get("TeamName")
-
-            # ✅ FALLBACK: derive team name from ball-by-ball data
-            if not team_name:
-                try:
-                    team_name = (
-                        bbb_df["scrM_tmMIdBattingName"]
-                        .dropna()
-                        .iloc[0]
-                        if not bbb_df.empty else None
-                    )
-                except Exception:
-                    team_name = None
-
-            partnership_html = create_partnership_chart(bbb_df, team_name)
-
+        try:
+            partnership_html = create_partnership_chart(bbb_df, batting_team_name)
         except Exception as e:
-            print(f"Partnership chart error (innings {inn_no}):", e)
+            print(f"⚠️ Partnership chart error (innings {inn_no}):", e)
             partnership_html = None
 
-
-        # -------------------- Fall of Wickets --------------------
+        # --------------------------------------------------------
+        # ✅ STEP 7: Fall of Wickets
+        # --------------------------------------------------------
         fall_of_wickets = []
         try:
-            dismissals = bbb_df[bbb_df.get("scrM_IsWicket", 0) == 1].copy()
+            dismissals = bbb_df[pd.to_numeric(bbb_df.get("scrM_IsWicket", 0), errors="coerce").fillna(0) == 1].copy()
+
             for idx, (_, row) in enumerate(dismissals.iterrows(), start=1):
                 dismissal = build_dismissal(row)
                 fall_of_wickets.append({
@@ -8327,11 +8766,14 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
         except Exception:
             fall_of_wickets = []
 
-        # -------------------- Summary --------------------
+        # --------------------------------------------------------
+        # ✅ STEP 8: Summary
+        # --------------------------------------------------------
         summary = {}
         try:
             total_runs = int(pd.to_numeric(bbb_df.get("TeamRuns", 0), errors="coerce").fillna(0).max())
-            overs = int(bbb_df.get("scrM_OverNo", 0).max()) if "scrM_OverNo" in bbb_df.columns else 0
+            overs = int(pd.to_numeric(bbb_df.get("scrM_OverNo", 0), errors="coerce").fillna(0).max())
+
             extras = int(
                 pd.to_numeric(bbb_df.get("scrM_NoBallRuns", 0), errors="coerce").fillna(0).sum() +
                 pd.to_numeric(bbb_df.get("scrM_WideRuns", 0), errors="coerce").fillna(0).sum() +
@@ -8339,26 +8781,29 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
                 pd.to_numeric(bbb_df.get("scrM_LegByeRuns", 0), errors="coerce").fillna(0).sum() +
                 pd.to_numeric(bbb_df.get("scrM_PenaltyRuns", 0), errors="coerce").fillna(0).sum()
             )
+
             crr = round(total_runs / max(1, overs), 2) if overs else 0.0
+
             fows = [0] + [w["runs"] for w in fall_of_wickets] + [total_runs]
             highest_pship = max(fows[i + 1] - fows[i] for i in range(len(fows) - 1)) if len(fows) > 1 else total_runs
 
             summary = {
-                "TotalRuns": int(total_runs),
-                "TotalOvers": int(overs) if not pd.isna(overs) else 0,
-                "Extras": int(extras),
-                "Nb": int(pd.to_numeric(bbb_df.get("scrM_NoBallRuns", 0), errors="coerce").fillna(0).sum()),
-                "Wd": int(pd.to_numeric(bbb_df.get("scrM_WideRuns", 0), errors="coerce").fillna(0).sum()),
-                "Bye": int(pd.to_numeric(bbb_df.get("scrM_ByeRuns", 0), errors="coerce").fillna(0).sum()),
-                "Lb": int(pd.to_numeric(bbb_df.get("scrM_LegByeRuns", 0), errors="coerce").fillna(0).sum()),
-                "Penalty": int(pd.to_numeric(bbb_df.get("scrM_PenaltyRuns", 0), errors="coerce").fillna(0).sum()),
+                "TotalRuns": total_runs,
+                "TotalOvers": overs,
+                "Extras": extras,
                 "CRR": float(crr),
                 "HighestPartnership": highest_pship
             }
         except Exception:
             summary = {}
 
-        final_meta = {**innings_meta, **summary}
+        final_meta = {}
+        final_meta.update(innings_meta or {})
+        final_meta.update(summary or {})
+        final_meta["MatchId"] = str(match_id)
+        final_meta["MatchName"] = str(match_display_name or input_val)
+        final_meta["BattingTeamName"] = batting_team_name
+        final_meta["BowlingTeamName"] = bowling_team_name
 
         return {
             "inn_no": inn_no,
@@ -8370,16 +8815,20 @@ def _build_innings_json(match_name: str, inn_no: int) -> dict:
         }
 
     except Exception as ex:
-        print("Error building innings JSON:", ex)
+        print("❌ Error building innings JSON:", ex)
         return {
             "inn_no": inn_no,
             "batters": [],
             "bowlers": [],
-            "meta": {},
+            "meta": {
+                "MatchId": str(match_id),
+                "MatchName": str(match_display_name or input_val)
+            },
             "partnership_chart": None,
             "fall_of_wickets": [],
             "_error": str(ex)
         }
+
 
 
 
@@ -8454,18 +8903,86 @@ def _compute_match_status(innings_jsons: list[dict]) -> str:
         return f"Status unavailable ({e})"
 
 
+from typing import Dict
+
 def generate_scorecard_json(match_name: str, live: bool = True, force: bool = False) -> Dict:
     """
-    Public function to return the match scorecard JSON.
-    Logic implemented:
-      - Use per-innings cache files: {match}_inn_{inn}.json
-      - Recompute innings only if: missing OR (live and age>60s) OR force
-      - If innings is finished and its cache exists -> do NOT recompute that innings
-      - Return combined header + innings JSONs (but do NOT write full match-level JSON file)
+    ✅ UPDATED VERSION (FINAL):
+    - Accepts match_id OR match_name as input
+    - Resolves match_id + match_display_name from DB
+    - Uses innings cache keyed ONLY by match_id ✅
+    - Builds innings using match_id ✅ (tblscoremaster uses scrM_MchMId)
+    - Ensures match_header always contains:
+        ✅ MatchId
+        ✅ MatchName  (for display)
+    - ✅ LAST 12 BALLS fetched inning-wise from tblscoremaster ✅
     """
-    # -------------------- MATCH HEADER --------------------
+
+    import time
+    import json
+    import pandas as pd
+
+    # -------------------------------------------------
+    # ✅ STEP 0: Resolve match_id and match_display_name
+    # -------------------------------------------------
+    original_input = str(match_name).strip()
+    match_id = None
+    match_display_name = None
+
     try:
-        header_raw = get_match_header(match_name)
+        conn = get_connection()
+
+        # Only allow numeric match_id
+        if original_input.isdigit():
+            match_id = str(original_input).strip()
+            df_m = pd.read_sql(
+                """
+                SELECT mchM_Id, mchM_MatchName
+                FROM tblmatchmaster
+                WHERE mchM_Id = %s
+                LIMIT 1
+                """,
+                conn,
+                params=(int(match_id),)
+            )
+            if not df_m.empty:
+                match_display_name = str(df_m.iloc[0]["mchM_MatchName"]).strip()
+        else:
+            # If not numeric, fail
+            match_id = None
+        conn.close()
+    except Exception as e:
+        print("❌ Error resolving match_id:", e)
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    # ✅ Hard fail safe
+    if not match_id:
+        return {
+            "match_header": {
+                "MatchId": None,
+                "MatchName": original_input
+            },
+            "innings": [],
+            "last_12_balls": {},
+            "MatchStatus": "Match Not Found",
+            "_meta": {
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime()),
+                "match_name": original_input,
+                "match_id": None,
+                "match_finished": False,
+                "_error": "match_id could not be resolved"
+            },
+        }
+
+    # -------------------------------------------------
+    # ✅ STEP 1: MATCH HEADER
+    # -------------------------------------------------
+    header_json = {}
+    try:
+        header_raw = get_match_header(match_id)
         if hasattr(header_raw, "to_dict"):
             header_json = header_raw.to_dict()
         elif isinstance(header_raw, dict):
@@ -8476,53 +8993,65 @@ def generate_scorecard_json(match_name: str, live: bool = True, force: bool = Fa
                 for k in dir(header_raw)
                 if not k.startswith("_") and not callable(getattr(header_raw, k))
             }
-    except Exception:
+    except Exception as e:
+        print("⚠️ get_match_header failed:", e)
         header_json = {}
+
+    # ✅ Always attach these
+    header_json["MatchId"] = str(match_id)
+    header_json["MatchName"] = str(match_display_name or original_input)
 
     result_text = header_json.get("ResultText") or header_json.get("Result")
     match_finished = bool(result_text)
 
-    # -------------------- INNINGS META --------------------
+    # -------------------------------------------------
+    # ✅ STEP 2: INNINGS META
+    # -------------------------------------------------
+    innings_meta = []
     try:
-        innings_raw = get_match_innings(match_name)
+        innings_raw = get_match_innings(match_id)
         if hasattr(innings_raw, "to_dict"):
             innings_meta = innings_raw.to_dict(orient="records")
         elif isinstance(innings_raw, (list, tuple)):
             innings_meta = [dict(x) if not isinstance(x, dict) else x for x in innings_raw]
         else:
             innings_meta = [dict(innings_raw)]
-    except Exception:
+    except Exception as e:
+        print("⚠️ get_match_innings failed:", e)
         innings_meta = []
 
     innings_jsons = []
 
-    # -------------------- PER INNINGS BUILD --------------------
+    # -------------------------------------------------
+    # ✅ STEP 3: PER INNINGS BUILD (CACHE BY match_id ✅)
+    # -------------------------------------------------
     for inn_meta in innings_meta:
         inn_no = int(inn_meta.get("Inn_Inning", inn_meta.get("inn_no", -1)))
         if inn_no < 0:
             continue
 
-        inn_cache = _innings_cache_path(match_name, inn_no)
+        inn_cache = _innings_cache_path(match_id, inn_no)
         lock_path = inn_cache.with_suffix(".lock")
 
         # ---- detect innings completion ----
         inn_finished = False
         if inn_meta.get("Inn_Status") and str(inn_meta.get("Inn_Status")).lower() in (
-            "complete", "completed", "finished", "closed"
-        ):
+            "complete", "completed", "finished", "closed"):
             inn_finished = True
-        elif inn_meta.get("Inn_IsCompleted") is not None:
-            inn_finished = bool(inn_meta.get("Inn_IsCompleted"))
-        else:
-            try:
-                wickets = int(inn_meta.get("Inn_Wickets", 0) or 0)
-                if wickets >= 10:
-                    inn_finished = True
-            except Exception:
-                pass
+        try:
+            inns = get_match_innings(match_id)
+            if hasattr(inns, "to_dict"):
+                inns = inns.to_dict(orient="records")
+            innings_meta = next(
+                (i for i in inns if int(i.get("Inn_Inning", -1)) == int(inn_no)),
+                {}
+            )
+        except Exception:
+            innings_meta = {}
 
         # ---- rebuild decision ----
         need_rebuild = force or not inn_cache.exists()
+
         if inn_cache.exists() and not inn_finished:
             age = _file_age_seconds(inn_cache) or 999999
             if live and age > 60:
@@ -8533,12 +9062,13 @@ def generate_scorecard_json(match_name: str, live: bool = True, force: bool = Fa
             got_lock = acquire_lock(lock_path, timeout=8.0)
             if got_lock:
                 try:
-                    inn_json = _build_innings_json(match_name, inn_no)
+                    inn_json = _build_innings_json(match_id, inn_no)
 
-                    # ✅ DO NOT cache broken innings
                     if inn_json.get("_error"):
                         print(f"⚠️ Skipping cache for innings {inn_no}: {inn_json['_error']}")
                     else:
+                        inn_json["match_id"] = str(match_id)
+                        inn_json["match_name"] = str(match_display_name or original_input)
                         safe_write_json(inn_cache, inn_json)
 
                 finally:
@@ -8549,40 +9079,109 @@ def generate_scorecard_json(match_name: str, live: bool = True, force: bool = Fa
             with open(inn_cache, "r", encoding="utf-8") as f:
                 inn_json = json.load(f)
         except Exception:
-            inn_json = _build_innings_json(match_name, inn_no)
+            inn_json = _build_innings_json(match_id, inn_no)
 
-        # ✅ Skip broken innings safely
         if inn_json.get("_error"):
             print(f"⚠️ Skipping innings {inn_no} in response: {inn_json['_error']}")
             continue
 
         innings_jsons.append(inn_json)
 
-    # -------------------- LAST 12 BALLS --------------------
+    # -------------------------------------------------
+    # ✅ STEP 4: LAST 12 BALLS (INNING-WISE ✅)
+    # -------------------------------------------------
+    last12_by_inning = {}
+
     try:
-        last12 = get_last_12_deliveries(match_name) or []
-    except Exception:
-        last12 = []
+        conn = get_connection()
 
-    # -------------------- MATCH STATUS --------------------
-    match_status = (
-        result_text
-        if match_finished
-        else _compute_match_status(innings_jsons)
-    )
+        # If innings_meta is empty, still try to detect innings from DB
+        inn_list = []
+        for inn_meta in innings_meta:
+            inn_no = int(inn_meta.get("Inn_Inning", inn_meta.get("inn_no", -1)))
+            if inn_no > 0:
+                inn_list.append(inn_no)
 
-    # -------------------- FINAL RESPONSE --------------------
+        if not inn_list:
+            df_inns = pd.read_sql(
+                """
+                SELECT DISTINCT scrM_InningNo
+                FROM tblscoremaster
+                WHERE scrM_MchMId = %s
+                ORDER BY scrM_InningNo
+                """,
+                conn,
+                params=(int(match_id),)
+            )
+            inn_list = [int(x) for x in df_inns["scrM_InningNo"].tolist() if x]
+
+        for inn_no in inn_list:
+
+            q_last12 = """
+                SELECT
+                    scrM_DelRuns,
+                    scrM_IsWicket
+                FROM tblscoremaster
+                WHERE scrM_MchMId = %s
+                  AND scrM_InningNo = %s
+                  AND scrM_IsValidBall = 1
+                ORDER BY scrM_OverNo DESC, scrM_DelNo DESC
+                LIMIT 12
+            """
+
+            df_last = pd.read_sql(q_last12, conn, params=(int(match_id), int(inn_no)))
+
+            balls = []
+            if not df_last.empty:
+                for _, r in df_last.iterrows():
+                    if int(r.get("scrM_IsWicket") or 0) == 1:
+                        balls.append("W")
+                    else:
+                        try:
+                            balls.append(str(int(r.get("scrM_DelRuns") or 0)))
+                        except Exception:
+                            balls.append("0")
+
+                balls = list(reversed(balls))
+
+            last12_by_inning[str(inn_no)] = balls
+
+        conn.close()
+
+        print("✅ Last 12 balls inning-wise loaded:", last12_by_inning)
+
+    except Exception as e:
+        print("⚠️ LAST 12 BALLS inning-wise query failed:", e)
+        try:
+            conn.close()
+        except Exception:
+            pass
+        last12_by_inning = {}
+
+    # -------------------------------------------------
+    # ✅ STEP 5: MATCH STATUS
+    # -------------------------------------------------
+    match_status = result_text if match_finished else _compute_match_status(innings_jsons)
+
+    # -------------------------------------------------
+    # ✅ FINAL RESPONSE
+    # -------------------------------------------------
     return {
         "match_header": header_json,
         "innings": innings_jsons,
-        "last_12_balls": last12,
+        "last_12_balls": last12_by_inning,  # ✅ dictionary by inning
         "MatchStatus": match_status,
         "_meta": {
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime()),
-            "match_name": match_name,
+            "match_name": str(match_display_name or original_input),
+            "match_id": str(match_id),
             "match_finished": match_finished,
         },
     }
+
+
+
+
 
 
 
@@ -10262,6 +10861,7 @@ def get_powerplay_stats(trn_id, team, matches):
 
 
 
+
 # Fetch powerplay stats for a given match, team, and over range
 def get_powerplay_stats_ISPL(match_name, team_id, pp_from, pp_to):
     """
@@ -10347,6 +10947,7 @@ def get_tapeball_deliveries(match_name, team_id=None):
     try:
         conn = get_connection()
         if team_id:
+            # Filter by batting team (same behaviour as powerplay / fiftyover reports)
             query = """
                 SELECT
                     scrM_OverNo, scrM_DelNo, scrM_PlayMIdStrikerName AS Batter,
@@ -10354,10 +10955,10 @@ def get_tapeball_deliveries(match_name, team_id=None):
                     scrM_WideRuns, scrM_NoBallRuns, scrM_DeliveryType_zName
                 FROM tblscoremaster
                 WHERE scrM_MatchName = %s AND scrM_IsTapeOver = 1
-                  AND (scrM_tmMIdBatting = %s OR scrM_tmMIdBowling = %s)
+                  AND scrM_tmMIdBatting = %s
                 ORDER BY scrM_OverNo, scrM_DelNo
             """
-            params = (match_name, team_id, team_id)
+            params = (match_name, team_id)
         else:
             query = """
                 SELECT
@@ -10399,67 +11000,3 @@ def get_tapeball_deliveries(match_name, team_id=None):
     except Exception as e:
         print(f"❌ Error in get_tapeball_deliveries: {e}")
         return [], {'Runs': 0, 'Wkts': 0, 'Balls': 0}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

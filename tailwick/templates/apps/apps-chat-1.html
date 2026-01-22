@@ -13,22 +13,33 @@
                 <h5 class="text-16 mb-4">Advanced Match Filters</h5>
 
                 <!-- Row 1 (Player Analysis 1): Player, Format, Tournament (multiselect), Team (multiselect), Matches -->
+                <!-- Row 1 (Player Analysis 1): Player, Format, Tournament (multiselect), Team (multiselect), Matches -->
                 <div class="flex flex-col gap-3 md:flex-row md:items-center">
-                    <!-- Player (single select) -->
+
+                    <!-- ✅ Player (single select) -->
                     <div class="relative w-full md:w-1/4">
                         <label for="player" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Player</label>
-                        <select id="player" name="player" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
-                            <option value="" disabled {% if not request.form.get('player') %}selected{% endif %}>Select Player</option>
+                        <select id="player" name="player"
+                                class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                            <option value="" disabled {% if not request.form.get('player') %}selected{% endif %}>
+                                Select Player
+                            </option>
+
                             {% for p in players %}
-                                <option value="{{ p.id }}" {% if request.form.get('player') == p.id %}selected{% endif %}>{{ p.label }}</option>
+                                <option value="{{ p.id }}"
+                                        {% if request.form.get('player') == (p.id|string) %}selected{% endif %}>
+                                    {{ p.label }}
+                                </option>
                             {% endfor %}
                         </select>
                     </div>
 
-                    <!-- Format (single select) -->
+                    <!-- ✅ Format (single select) -->
                     <div class="relative w-full md:w-1/4">
                         <label for="format_override" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Format</label>
-                        <select id="format_override" name="format_override" class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100" onchange="this.form.submit()">
+                        <select id="format_override" name="format_override"
+                                class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
+                                onchange="this.form.submit()">
                             <option value="" {% if not request.form.get('format_override') %}selected{% endif %}>Auto</option>
                             <option value="t10" {% if request.form.get('format_override') == 't10' %}selected{% endif %}>T10</option>
                             <option value="t20" {% if request.form.get('format_override') == 't20' %}selected{% endif %}>T20</option>
@@ -37,37 +48,60 @@
                         </select>
                     </div>
 
-                    <!-- Tournament (multiselect) -->
+                    <!-- ✅ Tournament (multiselect) -->
                     <div class="relative w-full md:w-1/4">
                         <label for="tournaments" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Tournament</label>
-                        <select id="tournaments" name="tournaments[]" multiple data-choices data-choices-removeItem onchange="this.form.submit()" class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <select id="tournaments" name="tournaments[]" multiple
+                                data-choices data-choices-removeItem
+                                onchange="this.form.submit()"
+                                class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
                             {% for t in tournaments %}
-                                <option value="{{ t.value }}" {% if (t.value|string) in request.form.getlist('tournaments[]') or (t.value) in request.form.getlist('tournaments[]') %}selected{% endif %}>{{ t.label }}</option>
+                                <option value="{{ t.value }}"
+                                        {% if (t.value|string) in request.form.getlist('tournaments[]') %}selected{% endif %}>
+                                    {{ t.label }}
+                                </option>
                             {% endfor %}
                         </select>
                     </div>
 
-                    <!-- Team (multiselect) -->
+                    <!-- ✅ Team (multiselect) -->
                     <div class="relative w-full md:w-1/4">
                         <label for="team_multi" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Team</label>
-                        <select id="team_multi" name="team[]" multiple data-choices data-choices-removeItem onchange="this.form.submit()" class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <select id="team_multi" name="team[]" multiple
+                                data-choices data-choices-removeItem
+                                onchange="this.form.submit()"
+                                class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
                             {% for t in teams %}
-                                <option value="{{ t.value }}" {% if (t.value|string) in request.form.getlist('team[]') or (t.value) in request.form.getlist('team[]') %}selected{% endif %}>{{ t.label }}</option>
+                                <option value="{{ t.value }}"
+                                        {% if (t.value|string) in request.form.getlist('team[]') %}selected{% endif %}>
+                                    {{ t.label }}
+                                </option>
                             {% endfor %}
                         </select>
                     </div>
 
-                    <!-- Matches (multiselect) -->
+                    <!-- ✅ Matches (multiselect) -->
                     <div class="relative w-full md:w-1/2">
                         <label for="matches" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Matches</label>
-                        <select id="matches" name="matches[]" multiple data-choices data-choices-removeItem class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                        <select id="matches" name="matches[]" multiple
+                                data-choices data-choices-removeItem
+                                class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
                             <option value="All" {% if 'All' in request.form.getlist('matches[]') %}selected{% endif %}>All</option>
+
                             {% for m in matches %}
-                                <option value="{{ m.value if m.value is defined else m }}" {% if (m.value is defined and ((m.value|string) in request.form.getlist('matches[]') or (m.value) in request.form.getlist('matches[]'))) or (not (m.value is defined) and (m in request.form.getlist('matches[]'))) %}selected{% endif %}>{{ m.label if m.label is defined else m }}</option>
+                                <option value="{{ m.value }}"
+                                        {% if (m.value|string) in request.form.getlist('matches[]') %}selected{% endif %}>
+                                    {{ m.label }}
+                                </option>
                             {% endfor %}
                         </select>
                     </div>
+
                 </div>
+
 
                 <!-- Format-Specific Filters -->
                 {# Robust detection for limited-overs formats #}
@@ -219,147 +253,109 @@
 
                 <!-- Row 3: Player and Type Filters -->
                 <!-- Row 3: Player and Type Filters -->
+                <!-- ✅ Row 3: Type + Opponent Dropdowns -->
                 <div class="flex flex-col gap-3 mt-4 md:flex-row md:items-center">
-                    <!-- Type -->
+
+                    <!-- ✅ Type -->
                     <div class="relative w-full md:w-1/4">
                         <label class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Type</label>
+
                         <div class="flex gap-4 mt-1">
+                            <!-- ✅ Batting -->
                             <label class="inline-flex items-center">
-                                <input type="radio" name="type" value="batter" class="form-radio text-custom-500"
-                                    onchange="this.form.submit()" {% if request.form.get('type', 'batter') == 'batter' %}checked{% endif %}>
-                                <span class="ml-2 text-slate-700 dark:text-zink-100">Batters vs Bowlers</span>
+                                <input type="radio" name="type" value="batter"
+                                    class="form-radio text-custom-500"
+                                    onchange="this.form.submit()"
+                                    {% if request.form.get('type', 'batter') == 'batter' %}checked{% endif %}>
+                                <span class="ml-2 text-slate-700 dark:text-zink-100">Batting</span>
                             </label>
+
+                            <!-- ✅ Bowling -->
                             <label class="inline-flex items-center">
-                                <input type="radio" name="type" value="bowler" class="form-radio text-custom-500"
-                                    onchange="this.form.submit()" {% if request.form.get('type') == 'bowler' %}checked{% endif %}>
-                                <span class="ml-2 text-slate-700 dark:text-zink-100">Bowlers vs Batters</span>
+                                <input type="radio" name="type" value="bowler"
+                                    class="form-radio text-custom-500"
+                                    onchange="this.form.submit()"
+                                    {% if request.form.get('type') == 'bowler' %}checked{% endif %}>
+                                <span class="ml-2 text-slate-700 dark:text-zink-100">Bowling</span>
                             </label>
                         </div>
                     </div>
 
-                    <!-- Dynamic Dropdown Swap Based on Type -->
+                    <!-- ✅ Dynamic Dropdown Based on Type -->
                     {% if request.form.get('type', 'batter') == 'batter' %}
-                        <!-- 🏏 Batters Left -->
-                        <div class="relative w-full md:w-1/4">
-                            <label for="batters" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
-                                Batters
-                            </label>
-                            <select id="batters" name="batters[]" multiple data-choices data-choices-removeItem
-                                class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
 
-                                <!-- 🆕 All Batter Filters -->
-                                <option value="All" {% if 'All' in display_selected_batters %}selected{% endif %}>All</option>
-                                <option value="All (RHB)" {% if 'All (RHB)' in display_selected_batters %}selected{% endif %}>All (RHB)</option>
-                                <option value="All (LHB)" {% if 'All (LHB)' in display_selected_batters %}selected{% endif %}>All (LHB)</option>
-
-                                <!-- Individual Batters -->
-                                {% for p in batters %}
-                                    {% set clean_name = p.split(' (')[0] %}
-                                    <option value="{{ clean_name }}" data-label="{{ p }}"
-                                        {% if clean_name in display_selected_batters %}selected{% endif %}>
-                                        {{ p }}
-                                    </option>
-                                {% endfor %}
-                            </select>
-                        </div>
-
-                        <!-- VS -->
-                        <div class="flex items-center justify-center w-full md:w-1/12 text-center text-xl font-semibold text-zinc-600 dark:text-zink-200">
-                            VS
-                        </div>
-
-                        <!-- 🏹 Bowlers Right -->
+                        <!-- ✅ Batting => Show ONLY Bowlers -->
                         <div class="relative w-full md:w-1/4">
                             <label for="bowlers" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
                                 Bowlers
                             </label>
-                            <select id="bowlers" name="bowlers[]" multiple data-choices data-choices-removeItem
-                                class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
 
-                                <!-- 🆕 All Bowler Filters -->
+                            <select id="bowlers" name="bowlers[]" multiple
+                                    data-choices data-choices-removeItem
+                                    class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                                <!-- ✅ All + All(skill) tokens -->
                                 <option value="All" {% if 'All' in display_selected_bowlers %}selected{% endif %}>All</option>
+
                                 {% for t in ['RAF', 'RAMF', 'LAF', 'LAMF', 'ROB', 'RALB', 'LAS', 'LAC', 'ROX', 'LOX'] %}
-                                    <option value="All ({{ t }})" {% if 'All (' ~ t ~ ')' in display_selected_bowlers %}selected{% endif %}>
+                                    <option value="All ({{ t }})"
+                                            {% if ('All (' ~ t ~ ')') in display_selected_bowlers %}selected{% endif %}>
                                         All ({{ t }})
                                     </option>
                                 {% endfor %}
 
-                                <!-- Individual Bowlers -->
+                                <!-- ✅ Individual Bowlers: value=ID, label=Name -->
                                 {% for p in bowlers %}
-                                    {% set clean_name = p.split(' (')[0] %}
-                                    <option value="{{ clean_name }}" data-label="{{ p }}"
-                                        {% if clean_name in display_selected_bowlers %}selected{% endif %}>
-                                        {{ p }}
+                                    <option value="{{ p.id }}"
+                                            {% if (p.id|string) in display_selected_bowlers %}selected{% endif %}>
+                                        {{ p.label }}
                                     </option>
                                 {% endfor %}
+
+
                             </select>
                         </div>
+
                     {% else %}
-                        <!-- 🏹 Bowlers Left -->
-                        <div class="relative w-full md:w-1/4">
-                            <label for="bowlers" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
-                                Bowlers
-                            </label>
-                            <select id="bowlers" name="bowlers[]" multiple data-choices data-choices-removeItem
-                                class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
 
-                                <!-- 🆕 All Bowler Filters -->
-                                <option value="All" {% if 'All' in display_selected_bowlers %}selected{% endif %}>All</option>
-                                {% for t in ['RAF', 'RAMF', 'LAF', 'LAMF', 'ROB', 'RALB', 'LAS', 'LAC', 'ROX', 'LOX'] %}
-                                    <option value="All ({{ t }})" {% if 'All (' ~ t ~ ')' in display_selected_bowlers %}selected{% endif %}>
-                                        All ({{ t }})
-                                    </option>
-                                {% endfor %}
-
-                                <!-- Individual Bowlers -->
-                                {% for p in bowlers %}
-                                    {% set clean_name = p.split(' (')[0] %}
-                                    <option value="{{ clean_name }}" data-label="{{ p }}"
-                                        {% if clean_name in display_selected_bowlers %}selected{% endif %}>
-                                        {{ p }}
-                                    </option>
-                                {% endfor %}
-                            </select>
-                        </div>
-
-                        <!-- VS -->
-                        <div class="flex items-center justify-center w-full md:w-1/12 text-center text-xl font-semibold text-zinc-600 dark:text-zink-200">
-                            VS
-                        </div>
-
-                        <!-- 🏏 Batters Right -->
+                        <!-- ✅ Bowling => Show ONLY Batters -->
                         <div class="relative w-full md:w-1/4">
                             <label for="batters" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
                                 Batters
                             </label>
-                            <select id="batters" name="batters[]" multiple data-choices data-choices-removeItem
-                                class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
 
-                                <!-- 🆕 All Batter Filters -->
+                            <select id="batters" name="batters[]" multiple
+                                    data-choices data-choices-removeItem
+                                    class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+
+                                <!-- ✅ All + All(skill) tokens -->
                                 <option value="All" {% if 'All' in display_selected_batters %}selected{% endif %}>All</option>
                                 <option value="All (RHB)" {% if 'All (RHB)' in display_selected_batters %}selected{% endif %}>All (RHB)</option>
                                 <option value="All (LHB)" {% if 'All (LHB)' in display_selected_batters %}selected{% endif %}>All (LHB)</option>
 
-                                <!-- Individual Batters -->
+                                <!-- ✅ Individual Batters: value=ID, label=Name -->
                                 {% for p in batters %}
-                                    {% set clean_name = p.split(' (')[0] %}
-                                    <option value="{{ clean_name }}" data-label="{{ p }}"
-                                        {% if clean_name in display_selected_batters %}selected{% endif %}>
-                                        {{ p }}
+                                    <option value="{{ p.id }}"
+                                            {% if (p.id|string) in display_selected_batters %}selected{% endif %}>
+                                        {{ p.label }}
                                     </option>
                                 {% endfor %}
+
+
                             </select>
                         </div>
+
                     {% endif %}
 
-                    {% if match_format in ['t20', 't20i', 'odi', 'one day', 'one day international'] %}
-                    <!-- Ball Phase (only for limited overs) -->
+                    <!-- ✅ Ball Phase (only for limited overs) -->
+                    {% set _fmt2 = match_format.lower() if match_format else '' %}
+                    {% if _fmt2 and ('t10' in _fmt2 or 't20' in _fmt2 or 'odi' in _fmt2 or 'one day' in _fmt2 or 'limited' in _fmt2) %}
                     <div class="relative w-full md:w-1/4">
                         <label for="ball_phase" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
                             Ball Phase
                         </label>
                         <select id="ball_phase" name="ball_phase"
-                            class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
+                                class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
                             <option value="" {% if not selected_ball_phase %}selected{% endif %}>All</option>
                             <option value="First 10" {% if selected_ball_phase == 'First 10' %}selected{% endif %}>First 10</option>
                             <option value="Middle Balls" {% if selected_ball_phase == 'Middle Balls' %}selected{% endif %}>Middle Balls</option>
@@ -368,14 +364,18 @@
                     </div>
                     {% endif %}
 
-                    <!-- Submit Button -->
+                    <!-- ✅ Submit Button -->
                     <div class="w-full md:w-auto mt-4 md:mt-6">
                         <button type="submit"
-                            class="px-4 py-2 btn bg-custom-500 text-white hover:bg-custom-600 focus:ring focus:ring-custom-200 dark:bg-custom-400 dark:hover:bg-custom-500">
+                                class="px-4 py-2 btn bg-custom-500 text-white hover:bg-custom-600 focus:ring focus:ring-custom-200 dark:bg-custom-400 dark:hover:bg-custom-500">
                             Generate
                         </button>
                     </div>
+
                 </div>
+
+
+
 
 
             </form>
@@ -699,7 +699,7 @@ function downloadPlayerPDF(playerName) {
                             const payload = {
                                 metric: metricEl ? metricEl.value : '',
                                 matches: matches,
-                                team: document.querySelector('select[name="team"]')?.value || null,
+                                team: document.querySelector('select[name="team[]"] option:checked')?.value || null,
                                 type: document.querySelector('input[name="type"]:checked')?.value || 'batter',
                                 batters: readMultiSelect('batters'),
                                 bowlers: readMultiSelect('bowlers'),
@@ -1439,11 +1439,18 @@ function downloadPlayerPDF(playerName) {
                                 heatmapContainer.style.opacity = '0.45';
                                 heatmapContainer.innerHTML = '<div class="text-xs text-slate-400">Loading heatmap…</div>';
 
+                                // ✅ Take selected Player from dropdown
+                                const selectedPlayer = document.getElementById("player")?.value || "";
+
+                                // ✅ Add player into payload (IMPORTANT)
+                                payload.player = selectedPlayer;
+
                                 const res = await fetch("/apps/heatmap_matrix", {
                                     method: "POST",
                                     headers: { "Content-Type": "application/json" },
                                     body: JSON.stringify(payload),
                                 });
+
             
                                 const data = await res.json();
             

@@ -53,94 +53,208 @@ def dynamic_template_users_view(template_name):
 # ISPL Reports route
 @apps.route('/apps/ispl-reports', methods=['GET', 'POST'])
 def ispl_reports():
+    import pandas as pd
     from flask import session
+
     association_id = None
     if current_user and getattr(current_user, "is_authenticated", False):
         association_id = getattr(current_user, "trnM_AssociationId", None) or session.get("association_id")
 
-    tournaments = get_all_tournaments(association_id)
-    selected_tournament = request.args.get("tournament")
-    teams = get_teams_by_tournament(selected_tournament) if selected_tournament else []
-    selected_team = request.args.get("team")
-    selected_matches = request.args.getlist("matches")
-    # Load matches for the selected team. If a tournament is provided use it as filter,
-    # otherwise fetch matches for the team across tournaments.
-    matches = []
-    if selected_team:
-        try:
-            matches = get_matches_by_team(selected_team, selected_tournament if selected_tournament else None)
-        except Exception as e:
-            print(f"Error loading matches for team={selected_team}, tournament={selected_tournament}: {e}")
+    # ==========================================================
+    # ✅ TOURNAMENT DROPDOWN  (value=id, label=name)
+    # ==========================================================
+    tournaments_raw = get_all_tournaments(association_id) or []
+    tournaments = [
+        {"value": int(t["id"]), "label": str(t["name"])}
+        for t in tournaments_raw
+        if isinstance(t, dict) and t.get("id") and t.get("name")
+    ]
 
-    # Powerplay report logic (default: first selected match and team)
+    # ==========================================================
+    # ✅ Read selected values (IDs)
+    # ==========================================================
+    if request.method == "POST":
+        selected_tournament = request.form.get("tournament")   # tournament_id
+        selected_team = request.form.get("team")               # team_id
+        selected_matches = request.form.getlist("matches")     # match_id list OR ["All"]
+    else:
+        selected_tournament = request.args.get("tournament")
+        selected_team = request.args.get("team")
+        selected_matches = request.args.getlist("matches")
+
+    # ==========================================================
+    # ✅ Safe conversions
+    # ==========================================================
+    try:
+        selected_tournament_id = int(selected_tournament) if selected_tournament else None
+    except:
+        selected_tournament_id = None
+
+    try:
+        selected_team_id = int(selected_team) if selected_team else None
+    except:
+        selected_team_id = None
+
+    # ✅ Match IDs list (ignore "All")
+    selected_match_ids = []
+    for m in selected_matches:
+        if str(m).strip().lower() == "all":
+            continue
+        try:
+            selected_match_ids.append(int(m))
+        except:
+            pass
+
+    # ==========================================================
+    # ✅ TEAM DROPDOWN  (value=id, label=name)
+    # ==========================================================
+    teams = []
+    if selected_tournament_id:
+        try:
+            conn = get_connection()
+
+            q = """
+                SELECT DISTINCT t.tmM_Id AS id, t.tmM_ShortName AS name
+                FROM tblscoremaster s
+                INNER JOIN tblteammaster t
+                    ON t.tmM_Id IN (s.scrM_tmMIdBatting, s.scrM_tmMIdBowling)
+                WHERE s.scrM_TrnMId = %s
+                ORDER BY t.tmM_ShortName
+            """
+
+            df_teams = pd.read_sql(q, conn, params=(selected_tournament_id,))
+            conn.close()
+
+            teams = [
+                {"value": int(r["id"]), "label": str(r["name"])}
+                for _, r in df_teams.iterrows()
+                if r.get("id") and r.get("name")
+            ]
+
+        except Exception as e:
+            print("❌ ISPL team dropdown error:", e)
+            teams = []
+
+    # ==========================================================
+    # ✅ MATCH DROPDOWN  (value=id, label=name)
+    # ==========================================================
+    matches = []
+    if selected_tournament_id and selected_team_id:
+        try:
+            conn = get_connection()
+
+            q = """
+                SELECT DISTINCT s.scrM_MchMId AS id, s.scrM_MatchName AS name
+                FROM tblscoremaster s
+                WHERE s.scrM_TrnMId = %s
+                  AND (s.scrM_tmMIdBatting = %s OR s.scrM_tmMIdBowling = %s)
+                  AND s.scrM_MatchName IS NOT NULL
+                  AND s.scrM_MatchName <> ''
+                ORDER BY s.scrM_MatchName
+            """
+
+            dfm = pd.read_sql(q, conn, params=(selected_tournament_id, selected_team_id, selected_team_id))
+            conn.close()
+
+            matches = [
+                {"value": int(r["id"]), "label": str(r["name"])}
+                for _, r in dfm.iterrows()
+                if r.get("id") and r.get("name")
+            ]
+
+        except Exception as e:
+            print("❌ ISPL matches dropdown error:", e)
+            matches = []
+
+    # ==========================================================
+    # ✅ REPORTS DEFAULTS
+    # ==========================================================
     powerplay_report = []
     powerplay_sql_debug = None
+
     tapeball_deliveries = []
     tapeball_summary = {'Runs': 0, 'Wkts': 0, 'Balls': 0}
+
     fifty_deliveries = []
     fifty_summary = {'Runs': 0, 'Wkts': 0, 'Balls': 0, 'FFTarget': None}
     fifty_error = None
-    # Only generate reports when user has explicitly selected one or more matches.
-    # This prevents changing the `team` (which may submit to refresh matches)
-    # from triggering report generation.
-    if selected_matches and len(selected_matches) > 0:
-        match_name = None
-        if selected_matches and len(selected_matches) > 0:
-            match_name = selected_matches[0]
-        elif matches and len(matches) > 0:
-            match_name = matches[0]
-        if match_name:
-            from tailwick.utils import get_powerplay_overs, get_powerplay_stats_ISPL, get_tapeball_deliveries, get_fiftyover_deliveries, get_connection
-            # Resolve selected_team (short name) -> team_id
-            team_id = None
+
+    # ==========================================================
+    # ✅ Generate report ONLY if match_id selected
+    # ==========================================================
+    if selected_match_ids and selected_team_id:
+        match_id = selected_match_ids[0]  # use first selected match
+
+        try:
+            from tailwick.utils import (
+                get_powerplay_overs,
+                get_powerplay_stats_ISPL,
+                get_tapeball_deliveries,
+                get_fiftyover_deliveries
+            )
+
+            # ✅ Convert match_id -> match_name
+            match_name = None
             try:
                 conn = get_connection()
-                df_tid = pd.read_sql("SELECT tmM_Id FROM tblteammaster WHERE tmM_ShortName = %s LIMIT 1", conn, params=(selected_team,))
+                df_mn = pd.read_sql(
+                    "SELECT scrM_MatchName FROM tblscoremaster WHERE scrM_MchMId=%s LIMIT 1",
+                    conn,
+                    params=(match_id,)
+                )
                 conn.close()
-                if not df_tid.empty:
-                    team_id = df_tid.iloc[0]['tmM_Id']
+
+                if not df_mn.empty:
+                    match_name = str(df_mn.iloc[0]["scrM_MatchName"])
             except Exception as e:
-                print(f"Error resolving team id for {selected_team}: {e}")
-            if team_id:
-                pp_overs, powerplay_sql_debug = get_powerplay_overs(match_name, team_id)
+                print("❌ match_name resolve error:", e)
+
+            if match_name:
+                # ✅ Powerplay
+                pp_overs, powerplay_sql_debug = get_powerplay_overs(match_name, selected_team_id)
+
                 for pp in pp_overs:
-                    stats = get_powerplay_stats_ISPL(match_name, team_id, pp['From'], pp['To'])
+                    stats = get_powerplay_stats_ISPL(match_name, selected_team_id, pp["From"], pp["To"])
                     powerplay_report.append({
-                        'PowerplayNo': pp['PowerplayNo'],
-                        'From': pp['From'],
-                        'To': pp['To'],
+                        "PowerplayNo": pp["PowerplayNo"],
+                        "From": pp["From"],
+                        "To": pp["To"],
                         **stats
                     })
-                    print(f"Powerplay {pp['PowerplayNo']} ({pp['From']}-{pp['To']}): {stats}")
-                # Tape Ball: use same match_name and team_id parameters as Powerplay
+
+                # ✅ Tape Ball
                 try:
-                    tapeball_deliveries, tapeball_summary = get_tapeball_deliveries(match_name, team_id)
+                    tapeball_deliveries, tapeball_summary = get_tapeball_deliveries(match_name, selected_team_id)
                 except Exception as e:
-                    print(f"Error fetching tapeball deliveries for {match_name}, team_id={team_id}: {e}")
-                # 50-50 Over: retrieve deliveries and any error message
+                    print("❌ tapeball error:", e)
+
+                # ✅ 50-50 Over
                 try:
-                    fifty_res = get_fiftyover_deliveries(match_name, team_id)
+                    fifty_res = get_fiftyover_deliveries(match_name, selected_team_id)
                     if isinstance(fifty_res, tuple) and len(fifty_res) == 3:
                         fifty_deliveries, fifty_summary, fifty_error = fifty_res
                     else:
-                        # legacy fallback
                         fifty_deliveries, fifty_summary = fifty_res
                         fifty_error = None
                 except Exception as e:
-                    fifty_deliveries, fifty_summary = [], {'Runs': 0, 'Wkts': 0, 'Balls': 0, 'FFTarget': None}
+                    fifty_deliveries = []
+                    fifty_summary = {'Runs': 0, 'Wkts': 0, 'Balls': 0, 'FFTarget': None}
                     fifty_error = str(e)
-            else:
-                powerplay_sql_debug = {'query': 'SELECT tmM_Id FROM tblteammaster WHERE tmM_ShortName = %s LIMIT 1', 'params': (selected_team,), 'result': 'No team id found'}
-                print(f"No team id found for selected_team={selected_team}")
+
+        except Exception as e:
+            print("❌ ISPL Report generation error:", e)
 
     return render_template(
         'ispl_reports.html',
         tournaments=tournaments,
         teams=teams,
         matches=matches,
-        selected_tournament=selected_tournament,
-        selected_team=selected_team,
+        selected_tournament=selected_tournament_id,
+        selected_team=selected_team_id,
+
+        # ✅ Keep original selected_matches list to support "All" selection UI
         selected_matches=selected_matches,
+
         powerplay_report=powerplay_report,
         powerplay_sql_debug=powerplay_sql_debug,
         tapeball_deliveries=tapeball_deliveries,
@@ -148,7 +262,9 @@ def ispl_reports():
         fifty_deliveries=fifty_deliveries,
         fifty_summary=fifty_summary,
         fifty_error=fifty_error
-        )
+    )
+
+
 
 @apps.route('/dashboards-analytics', methods=['GET', 'POST'])
 @login_required
@@ -206,9 +322,14 @@ def advanced_filters_1():
 
     tournaments = get_all_tournaments(association_id)
 
-    selected_tournament = request.form.get("tournament") if request.method == "POST" else None
-    selected_team = request.form.get("team") if request.method == "POST" else None
+    selected_tournaments = request.form.getlist("tournaments[]") if request.method == "POST" else []
+    selected_teams = request.form.getlist("team[]") if request.method == "POST" else []
+
+    selected_tournament = selected_tournaments[0] if selected_tournaments else None
+    selected_team = selected_teams[0] if selected_teams else None
+
     selected_matches = request.form.getlist("matches[]") if request.method == "POST" else []
+
 
     # Selected player (single) and format override (quick select)
     selected_player = request.form.get("player") if request.method == "POST" else None
@@ -224,8 +345,47 @@ def advanced_filters_1():
         selected_team = selected_teams[0]
 
     # 🆕 Handle 'All' selection
-    if 'All' in selected_matches and selected_team and selected_tournament:
-        selected_matches = get_matches_by_team(selected_team, selected_tournament)
+    # ✅ Handle 'All' selection (MUST return match IDs)
+    try:
+        if 'All' in selected_matches and selected_team:
+            conn = get_connection()
+
+            # ✅ tournament filter supports multi-select OR single tournament
+            tournament_ids = selected_tournaments if selected_tournaments else ([selected_tournament] if selected_tournament else [])
+
+            if tournament_ids:
+                placeholders = ",".join(["%s"] * len(tournament_ids))
+
+                q = f"""
+                    SELECT DISTINCT mchM_Id
+                    FROM tblmatchmaster
+                    WHERE (mchM_tmMId1 = %s OR mchM_tmMId2 = %s)
+                    AND mchM_TrnMId IN ({placeholders})
+                    ORDER BY mchM_StartDateTime DESC
+                """
+
+                params = [int(selected_team), int(selected_team)] + [int(x) for x in tournament_ids]
+
+            else:
+                # fallback (if no tournament selected)
+                q = """
+                    SELECT DISTINCT mchM_Id
+                    FROM tblmatchmaster
+                    WHERE (mchM_tmMId1 = %s OR mchM_tmMId2 = %s)
+                    ORDER BY mchM_StartDateTime DESC
+                """
+                params = [int(selected_team), int(selected_team)]
+
+            df_all = pd.read_sql(q, conn, params=tuple(params))
+            conn.close()
+
+            if df_all is not None and not df_all.empty:
+                selected_matches = df_all["mchM_Id"].astype(int).astype(str).tolist()
+
+    except Exception as e:
+        print("⚠️ Error applying All matches logic:", e)
+
+
 
     # 🧹 Sanitize multiday filter inputs
     def sanitize_int_field(value):
@@ -256,7 +416,7 @@ def advanced_filters_1():
     # 🆕 Default radar vars
     radar_stats, radar_labels, radar_breakdown = None, None, None
 
-# Prefer explicit format override from the form; fall back to tournament-derived format
+    # Prefer explicit format override from the form; fall back to tournament-derived format
     if selected_format_override:
         try:
             match_format = str(selected_format_override).lower()
@@ -268,6 +428,55 @@ def advanced_filters_1():
             match_format = format_result.lower() if format_result else None
         except Exception as e:
             print("Failed to get match format:", e)
+
+    # ✅ AUTO LOAD MATCH IDS if Player + Format selected but Matches not selected
+    # ✅ AUTO LOAD MATCH IDS (Tournament + Player + Format) if Matches not selected
+    try:
+        if request.method == "POST" and selected_player and match_format and not selected_matches:
+            conn = get_connection()
+
+            q = """
+                SELECT DISTINCT m.mchM_Id
+                FROM tblmatchmaster m
+                INNER JOIN tblscoremaster s ON s.scrM_MchMId = m.mchM_Id
+                INNER JOIN tbltournaments t ON t.trnM_Id = m.mchM_TrnMId
+                INNER JOIN tblz z ON z.z_Id = t.trnM_MatchFormat_z
+                WHERE (
+                    s.scrM_PlayMIdStriker = %s OR
+                    s.scrM_PlayMIdBowler = %s OR
+                    s.scrM_PlayMIdNonStriker = %s
+                )
+                AND LOWER(z.z_Name) LIKE %s
+            """
+
+            params = [
+                int(selected_player), int(selected_player), int(selected_player),
+                f"%{match_format.lower()}%"
+            ]
+
+            # ✅ Tournament filter (single tournament dropdown OR multiselect tournament)
+            if selected_tournaments:
+                q += " AND m.mchM_TrnMId IN (" + ",".join(["%s"] * len(selected_tournaments)) + ")"
+                params.extend([int(x) for x in selected_tournaments])
+            elif selected_tournament:
+                q += " AND m.mchM_TrnMId = %s"
+                params.append(int(selected_tournament))
+
+            q += " ORDER BY m.mchM_StartDateTime DESC"
+
+            df_auto_matches = pd.read_sql(q, conn, params=tuple(params))
+            conn.close()
+
+            if df_auto_matches is not None and not df_auto_matches.empty:
+                selected_matches = df_auto_matches["mchM_Id"].astype(str).tolist()
+                print(f"✅ AUTO MATCH IDS LOADED (Tournament filtered): {len(selected_matches)} matches")
+
+    except Exception as e:
+        print("⚠️ Error auto loading matches by player+format+tournament:", e)
+
+
+
+
 
     # Build `teams` as list of {value,label} dicts based on selected tournaments (supports multi-select)
     teams = []
@@ -430,20 +639,20 @@ def advanced_filters_1():
     # If matches were returned as id/label dicts, map any selected match ids
     # (from the POST) back to match names so downstream code expecting
     # match names continues to work.
-    try:
-        if matches and isinstance(matches, list) and isinstance(matches[0], dict):
-            value_to_label = {m['value']: m['label'] for m in matches}
-            # request.form.getlist was stored in selected_matches earlier
-            mapped = []
-            for sm in selected_matches:
-                if sm in value_to_label:
-                    mapped.append(value_to_label[sm])
-                else:
-                    # keep existing value if not found (could be 'All' or legacy name)
-                    mapped.append(sm)
-            selected_matches = mapped
-    except Exception as e:
-        print('Error mapping selected match ids to names:', e)
+    # try:
+    #     if matches and isinstance(matches, list) and isinstance(matches[0], dict):
+    #         value_to_label = {m['value']: m['label'] for m in matches}
+    #         # request.form.getlist was stored in selected_matches earlier
+    #         mapped = []
+    #         for sm in selected_matches:
+    #             if sm in value_to_label:
+    #                 mapped.append(value_to_label[sm])
+    #             else:
+    #                 # keep existing value if not found (could be 'All' or legacy name)
+    #                 mapped.append(sm)
+    #         selected_matches = mapped
+    # except Exception as e:
+    #     print('Error mapping selected match ids to names:', e)
 
 
     days, innings, sessions = [], [], []
@@ -670,12 +879,133 @@ def advanced_filters_1():
             days, innings, sessions = get_days_innings_sessions_by_matches(selected_matches)
 
             # Player Lists
-            batters, bowlers = get_players_by_match(
-                selected_matches,
-                day=selected_day,
-                inning=selected_inning,
-                session=selected_session
-            )
+            # batters, bowlers = get_players_by_match(
+            #     selected_matches,
+            #     day=selected_day,
+            #     inning=selected_inning,
+            #     session=selected_session
+            # )
+
+            # ✅ Player-based opponent dropdown lists (CORRECT)
+            batters, bowlers = [], []
+
+            try:
+                if selected_matches and selected_player:
+
+                    pid = int(selected_player)
+
+                    conn = get_connection()
+                    placeholders = ",".join(["%s"] * len(selected_matches))
+
+                    # ✅ BATTER MODE → show ONLY bowlers faced by selected batter
+                    # ✅ BATTER MODE → show ONLY bowlers faced by selected batter
+                    if selected_type == "batter":
+                        q = f"""
+                            SELECT DISTINCT
+                                s.scrM_PlayMIdBowler AS id,
+                                s.scrM_PlayMIdBowlerName AS name,
+                                MAX(NULLIF(TRIM(s.scrM_BowlerSkill), '')) AS skill
+                            FROM tblscoremaster s
+                            WHERE s.scrM_MchMId IN ({placeholders})
+                            AND s.scrM_IsValidBall = 1
+                            AND s.scrM_PlayMIdStriker = %s
+                            GROUP BY s.scrM_PlayMIdBowler, s.scrM_PlayMIdBowlerName
+                            ORDER BY name
+                        """
+
+                        params = tuple([int(x) for x in selected_matches] + [pid])
+                        df_bowlers = pd.read_sql(q, conn, params=params)
+
+                        bowlers = []
+                        if df_bowlers is not None and not df_bowlers.empty:
+                            df_bowlers["name"] = df_bowlers["name"].fillna("").astype(str).str.strip()
+                            df_bowlers["skill"] = df_bowlers["skill"].fillna("").astype(str).str.strip()
+
+                            for _, r in df_bowlers.iterrows():
+                                bowler_name = str(r["name"]).strip()
+                                bowler_skill = str(r["skill"]).strip()
+
+                                # ✅ IMPORTANT: if skill is like "(RAMF)" extract RAMF
+                                bowler_skill = bowler_skill.replace("(", "").replace(")", "").strip()
+
+                                if not bowler_name:
+                                    continue
+
+                                label = f"{bowler_name} ({bowler_skill})" if bowler_skill else bowler_name
+
+                                bowlers.append({
+                                    "id": str(int(r["id"])) if str(r["id"]).isdigit() else str(r["id"]),
+                                    "label": label
+                                })
+
+                        batters = []  # not required in batter mode
+
+
+                    # ✅ BOWLER MODE → show ONLY batters who faced selected bowler
+                    # ✅ BOWLER MODE → show ONLY batters who faced selected bowler
+                    elif selected_type == "bowler":
+                        q = f"""
+                            SELECT DISTINCT
+                                s.scrM_PlayMIdStriker AS id,
+                                s.scrM_PlayMIdStrikerName AS name,
+                                MAX(NULLIF(TRIM(s.scrM_StrikerBatterSkill), '')) AS skill
+                            FROM tblscoremaster s
+                            WHERE s.scrM_MchMId IN ({placeholders})
+                            AND s.scrM_IsValidBall = 1
+                            AND s.scrM_PlayMIdBowler = %s
+                            GROUP BY s.scrM_PlayMIdStriker, s.scrM_PlayMIdStrikerName
+                            ORDER BY name
+                        """
+
+                        params = tuple([int(x) for x in selected_matches] + [pid])
+                        df_batters = pd.read_sql(q, conn, params=params)
+
+                        batters = []
+                        if df_batters is not None and not df_batters.empty:
+                            df_batters["name"] = df_batters["name"].fillna("").astype(str).str.strip()
+                            df_batters["skill"] = df_batters["skill"].fillna("").astype(str).str.strip()
+
+                            for _, r in df_batters.iterrows():
+                                batter_name = str(r["name"]).strip()
+                                batter_skill = str(r["skill"]).strip()
+
+                                batter_skill = batter_skill.replace("(", "").replace(")", "").strip()
+
+                                if not batter_name:
+                                    continue
+
+                                label = f"{batter_name} ({batter_skill})" if batter_skill else batter_name
+
+                                batters.append({
+                                    "id": str(int(r["id"])) if str(r["id"]).isdigit() else str(r["id"]),
+                                    "label": label
+                                })
+
+                        bowlers = []  # not required in bowler mode
+
+
+                    conn.close()
+
+            except Exception as e:
+                print("⚠️ Error loading player-based opponent dropdowns:", e)
+
+
+            # ✅ FIX: Ensure batters/bowlers always become list of names (string)
+            # ✅ FIX: Ensure batters/bowlers always become list of names (string)
+            try:
+                if batters and isinstance(batters[0], dict):
+                    batters = [str(x.get("name", "")).strip() for x in batters if x.get("name")]
+                if bowlers and isinstance(bowlers[0], dict):
+                    bowlers = [str(x.get("name", "")).strip() for x in bowlers if x.get("name")]
+            except Exception as e:
+                print("⚠️ Error converting batters/bowlers dict->string:", e)
+
+
+
+            # ✅ Convert batters/bowlers to dict format required by HTML
+            # batters = [{"id": str(b.split(" (")[0]), "name": b} for b in batters] if batters else []
+            # bowlers = [{"id": str(b.split(" (")[0]), "name": b} for b in bowlers] if bowlers else []
+
 
             # ✅ Enhance dropdown labels: show hand type for batters and bowling skill for bowlers (for MySQL schema)
             try:
@@ -689,7 +1019,7 @@ def advanced_filters_1():
                         s.scrM_PlayMIdBowlerName AS Bowler,
                         MAX(NULLIF(TRIM(s.scrM_BowlerSkill), '')) AS BowlerSkill
                     FROM tblscoremaster s
-                    WHERE s.scrM_MatchName IN ({placeholders})
+                    WHERE s.scrM_MchMId IN ({placeholders})
                     AND s.scrM_IsValidBall = 1
                     GROUP BY s.scrM_PlayMIdStrikerName, s.scrM_PlayMIdBowlerName
                 """
@@ -727,30 +1057,42 @@ def advanced_filters_1():
                     bowlers = [bowler_skill_map.get(b, b) for b in bowlers]
 
                     # --- Prioritize selected player in batters/bowlers lists ---
+                    # --- Prioritize selected player in batters/bowlers lists ---
                     try:
                         if selected_player:
-                            # determine player name from full players list if possible
                             pname = None
                             sid = str(selected_player)
+
                             for p in players:
-                                if str(p.get('id')) == sid:
-                                    pname = p.get('label', '').split(' (')[0]
+                                if str(p.get("id")) == sid:
+                                    pname = p.get("label", "").split(" (")[0]
                                     break
-                            # fallback: if selected_player is a string name
+
                             if pname is None:
                                 pname = sid
 
-                            # move matching batter to front
-                            for lst in ('batters', 'bowlers'):
-                                arr = batters if lst == 'batters' else bowlers
-                                for i, v in enumerate(arr):
-                                    if v and v.split(' (')[0] == pname:
-                                        if i != 0:
-                                            item = arr.pop(i)
-                                            arr.insert(0, item)
-                                        break
+                            def safe_name(x):
+                                if isinstance(x, dict):
+                                    return str(x.get("name", "")).strip()
+                                return str(x).strip()
+
+                            # Move batter to top
+                            for i, v in enumerate(batters):
+                                if safe_name(v).split(" (")[0] == pname:
+                                    if i != 0:
+                                        batters.insert(0, batters.pop(i))
+                                    break
+
+                            # Move bowler to top
+                            for i, v in enumerate(bowlers):
+                                if safe_name(v).split(" (")[0] == pname:
+                                    if i != 0:
+                                        bowlers.insert(0, bowlers.pop(i))
+                                    break
+
                     except Exception as e:
-                        print('Error prioritizing selected player in batter/bowler lists:', e)
+                        print("⚠️ Error prioritizing selected player:", e)
+
 
             except Exception as e:
                 print("⚠️ Error enriching dropdowns with skill info:", e)
@@ -761,52 +1103,91 @@ def advanced_filters_1():
                 selected_batters = request.form.getlist("batters[]")
                 selected_bowlers = request.form.getlist("bowlers[]")
 
-                # preserve what was *actually clicked* for UI later
+                # preserve UI selection
                 display_selected_batters = selected_batters.copy()
                 display_selected_bowlers = selected_bowlers.copy()
 
-                # --- Batter Filters ---
+                # ✅ helper to safely extract batter/bowler values
+                def get_player_id(x):
+                    if isinstance(x, dict):
+                        return str(x.get("id", "")).strip()
+                    return str(x).strip()
+
+                def get_player_name(x):
+                    if isinstance(x, dict):
+                        return str(x.get("label", "")).strip()
+                    return str(x).strip()
+
+                # ---------------------------------------------------
+                # ✅ BATTER FILTERS
+                # batters can be list[str] OR list[dict]
+                # ---------------------------------------------------
                 internal_batters = []
-                if any(opt.startswith("All") for opt in selected_batters):
+
+                if any(str(opt).startswith("All") for opt in selected_batters):
+
                     if "All" in selected_batters:
-                        internal_batters = [b.split(" (")[0] for b in batters]  # All batters
+                        internal_batters = [get_player_id(b) for b in batters]
                         display_selected_batters = ["All"]
+
                     elif "All (RHB)" in selected_batters:
-                        internal_batters = [b.split(" (")[0] for b in batters if "(RHB)" in b.upper()]
+                        internal_batters = [
+                            get_player_id(b) for b in batters
+                            if "(RHB)" in get_player_name(b).upper()
+                        ]
                         display_selected_batters = ["All (RHB)"]
+
                     elif "All (LHB)" in selected_batters:
-                        internal_batters = [b.split(" (")[0] for b in batters if "(LHB)" in b.upper()]
+                        internal_batters = [
+                            get_player_id(b) for b in batters
+                            if "(LHB)" in get_player_name(b).upper()
+                        ]
                         display_selected_batters = ["All (LHB)"]
+
                 else:
-                    internal_batters = [b.split(" (")[0] for b in selected_batters]
+                    internal_batters = [str(x) for x in selected_batters]
 
                 if not internal_batters:
-                    internal_batters = [b.split(" (")[0] for b in batters]
+                    internal_batters = [get_player_id(b) for b in batters]
 
-                # --- Bowler Filters ---
+                # ---------------------------------------------------
+                # ✅ BOWLER FILTERS
+                # bowlers can be list[str] OR list[dict]
+                # ---------------------------------------------------
                 internal_bowlers = []
-                if any(opt.startswith("All") for opt in selected_bowlers):
+
+                if any(str(opt).startswith("All") for opt in selected_bowlers):
+
                     if "All" in selected_bowlers:
-                        internal_bowlers = [b.split(" (")[0] for b in bowlers]
+                        internal_bowlers = [get_player_id(b) for b in bowlers]
                         display_selected_bowlers = ["All"]
+
                     else:
-                        selected_types = [s for s in selected_bowlers if s.startswith("All (")]
+                        selected_types = [s for s in selected_bowlers if str(s).startswith("All (")]
                         skills = [s.split("(")[1].replace(")", "").strip().upper() for s in selected_types]
-                        internal_bowlers = [b.split(" (")[0] for b in bowlers if any(skill in b.upper() for skill in skills)]
+
+                        internal_bowlers = [
+                            get_player_id(b) for b in bowlers
+                            if any(skill in get_player_name(b).upper() for skill in skills)
+                        ]
+
                         display_selected_bowlers = [f"All ({'/'.join(skills)})"]
+
                 else:
-                    internal_bowlers = [b.split(" (")[0] for b in selected_bowlers]
+                    internal_bowlers = [str(x) for x in selected_bowlers]
 
                 if not internal_bowlers:
-                    internal_bowlers = [b.split(" (")[0] for b in bowlers]
+                    internal_bowlers = [get_player_id(b) for b in bowlers]
 
-                # ✅ Apply internally but keep dropdown clean
+                # ✅ Apply internally
                 request.form = request.form.copy()
                 request.form.setlist("batters[]", internal_batters)
                 request.form.setlist("bowlers[]", internal_bowlers)
 
             except Exception as e:
                 print("⚠️ Error applying 'All' filter logic:", e)
+
+
 
 
             
@@ -1015,42 +1396,54 @@ def advanced_filters_1():
 
             # Fetch ball-by-ball details
             print("Fetching ball-by-ball details...")
-            ball_by_ball_df = get_ball_by_ball_details(selected_matches)
-            # --- FILTER ball_by_ball_df BY SELECTED PLAYER ---
-            if selected_player and ball_by_ball_df is not None and not ball_by_ball_df.empty:
-                try:
-                    pid_val = None
-                    pname = None
-                    try:
-                        pid_val = int(selected_player)
-                    except Exception:
-                        pid_val = selected_player
-                    for p in players:
-                        if str(p.get('id')) == str(selected_player):
-                            pname = p.get('label', '').split(' (')[0]
-                            break
+            ball_by_ball_df = get_ball_by_ball_details(
+                selected_matches,
+                batters=request.form.getlist("batters[]"),
+                bowlers=request.form.getlist("bowlers[]"),
+                inning=selected_inning,
+                session=selected_session,
+                day=selected_day,
+                from_over=from_over,
+                to_over=to_over,
+                player_id=selected_player,     # ✅ NEW (filters only selected player)
+                view_type=selected_type        # ✅ NEW (batter/bowler mode)
+            )
 
-                    cols_id_bb = ['scrM_PlayMIdStriker', 'scrM_PlayMIdNonStriker', 'scrM_PlayMIdBowler']
-                    cols_name_bb = ['scrM_PlayMIdStrikerName', 'scrM_PlayMIdNonStrikerName', 'scrM_PlayMIdBowlerName']
-                    cond_bb = None
-                    for c in cols_id_bb:
-                        if c in ball_by_ball_df.columns:
-                            if cond_bb is None:
-                                cond_bb = (ball_by_ball_df[c] == pid_val)
-                            else:
-                                cond_bb |= (ball_by_ball_df[c] == pid_val)
-                    if pname:
-                        for c in cols_name_bb:
-                            if c in ball_by_ball_df.columns:
-                                if cond_bb is None:
-                                    cond_bb = (ball_by_ball_df[c] == pname)
-                                else:
-                                    cond_bb |= (ball_by_ball_df[c] == pname)
-                    if cond_bb is not None:
-                        ball_by_ball_df = ball_by_ball_df[cond_bb]
-                        print(f"Filtered ball_by_ball_df rows for player {selected_player}: {len(ball_by_ball_df)}")
-                except Exception as e:
-                    print('Error filtering ball_by_ball_df by selected_player:', e)
+            # --- FILTER ball_by_ball_df BY SELECTED PLAYER ---
+            # if selected_player and ball_by_ball_df is not None and not ball_by_ball_df.empty:
+            #     try:
+            #         pid_val = None
+            #         pname = None
+            #         try:
+            #             pid_val = int(selected_player)
+            #         except Exception:
+            #             pid_val = selected_player
+            #         for p in players:
+            #             if str(p.get('id')) == str(selected_player):
+            #                 pname = p.get('label', '').split(' (')[0]
+            #                 break
+
+            #         cols_id_bb = ['scrM_PlayMIdStriker', 'scrM_PlayMIdNonStriker', 'scrM_PlayMIdBowler']
+            #         cols_name_bb = ['scrM_PlayMIdStrikerName', 'scrM_PlayMIdNonStrikerName', 'scrM_PlayMIdBowlerName']
+            #         cond_bb = None
+            #         for c in cols_id_bb:
+            #             if c in ball_by_ball_df.columns:
+            #                 if cond_bb is None:
+            #                     cond_bb = (ball_by_ball_df[c] == pid_val)
+            #                 else:
+            #                     cond_bb |= (ball_by_ball_df[c] == pid_val)
+            #         if pname:
+            #             for c in cols_name_bb:
+            #                 if c in ball_by_ball_df.columns:
+            #                     if cond_bb is None:
+            #                         cond_bb = (ball_by_ball_df[c] == pname)
+            #                     else:
+            #                         cond_bb |= (ball_by_ball_df[c] == pname)
+            #         if cond_bb is not None:
+            #             ball_by_ball_df = ball_by_ball_df[cond_bb]
+            #             print(f"Filtered ball_by_ball_df rows for player {selected_player}: {len(ball_by_ball_df)}")
+            #     except Exception as e:
+            #         print('Error filtering ball_by_ball_df by selected_player:', e)
             # ✅ Filter videos by selected metric
             if selected_metric and not ball_by_ball_df.empty:
                 selected_metric_lower = selected_metric.lower().strip()
@@ -1092,12 +1485,21 @@ def advanced_filters_1():
                     ball_by_ball_df = ball_by_ball_df[ball_by_ball_df['scrM_SessionNo'] == int(selected_session)]
                 
                 selected_batters_list = request.form.getlist("batters[]")
-                if selected_batters_list:
-                    ball_by_ball_df = ball_by_ball_df[ball_by_ball_df['scrM_PlayMIdStrikerName'].isin(selected_batters_list)]
-
                 selected_bowlers_list = request.form.getlist("bowlers[]")
-                if selected_bowlers_list:
-                    ball_by_ball_df = ball_by_ball_df[ball_by_ball_df['scrM_PlayMIdBowlerName'].isin(selected_bowlers_list)]
+
+                # ✅ Correct filtering should be done using NAME columns (not ID columns)
+                if selected_type == "batter" and selected_batters_list:
+                    if "scrM_PlayMIdStrikerName" in ball_by_ball_df.columns:
+                        ball_by_ball_df = ball_by_ball_df[
+                            ball_by_ball_df["scrM_PlayMIdStrikerName"].astype(str).isin(selected_batters_list)
+                        ]
+
+                if selected_type == "bowler" and selected_bowlers_list:
+                    if "scrM_PlayMIdBowlerName" in ball_by_ball_df.columns:
+                        ball_by_ball_df = ball_by_ball_df[
+                            ball_by_ball_df["scrM_PlayMIdBowlerName"].astype(str).isin(selected_bowlers_list)
+                        ]
+
 
                 # Apply Over Filters (handles partial inputs too)
                 if from_over or to_over:
@@ -1262,11 +1664,11 @@ def advanced_filters_1():
                         # ✅ Check if single match is selected
                         is_single_match = len(selected_matches) == 1 if selected_matches else False
                         line_length_report = generate_line_length_report(
-                                                df,
-                                                selected_metric=selected_metric,
-                                                is_single_match=is_single_match,
-                                                selected_type=selected_type
-                                            )
+                            ball_by_ball_df,
+                            selected_metric=selected_metric,
+                            is_single_match=is_single_match,
+                            selected_type=selected_type
+                        )
 
                     else:
                         print("⚠️ No data found after filters — retaining last heatmap.")
@@ -1402,7 +1804,14 @@ def advanced_filters():
 
     # 🆕 Handle 'All' selection
     if 'All' in selected_matches and selected_team and selected_tournament:
-        selected_matches = get_matches_by_team(selected_team, selected_tournament)
+        all_matches = get_matches_by_team(selected_team, selected_tournament)
+
+        # ✅ If your function returns dict/list like [{"id":880,"label":"MI vs CSK"}]
+        if isinstance(all_matches, list) and len(all_matches) > 0 and isinstance(all_matches[0], dict):
+            selected_matches = [str(m["id"]) for m in all_matches]
+        else:
+            selected_matches = [str(x) for x in all_matches]
+
 
     # 🧹 Sanitize multiday filter inputs
     def sanitize_int_field(value):
@@ -1504,12 +1913,12 @@ def advanced_filters():
                         s.scrM_PlayMIdBowlerName AS Bowler,
                         MAX(NULLIF(TRIM(s.scrM_BowlerSkill), '')) AS BowlerSkill
                     FROM tblscoremaster s
-                    WHERE s.scrM_MatchName IN ({placeholders})
+                    WHERE s.scrM_MchMId IN ({placeholders})
                     AND s.scrM_IsValidBall = 1
                     GROUP BY s.scrM_PlayMIdStrikerName, s.scrM_PlayMIdBowlerName
                 """
-
                 player_df = pd.read_sql(query, conn, params=tuple(selected_matches))
+
                 conn.close()
 
                 if not player_df.empty:
@@ -1544,58 +1953,79 @@ def advanced_filters():
             except Exception as e:
                 print("⚠️ Error enriching dropdowns with skill info:", e)
 
-            # 🆕 Handle “All” filters for Batters and Bowlers
-            # 🆕 Handle “All” filters for Batters and Bowlers
+            # ✅ Handle “All” filters for Batters and Bowlers (ID Safe)
+            # ✅ Handle “All” filters for Batters and Bowlers (ID Safe)
             try:
-                selected_batters = request.form.getlist("batters[]")
-                selected_bowlers = request.form.getlist("bowlers[]")
+                selected_batters = request.form.getlist("batters[]")   # ✅ ids or All tokens
+                selected_bowlers = request.form.getlist("bowlers[]")   # ✅ ids or All tokens
 
-                # preserve what was *actually clicked* for UI later
+                # ✅ UI should show only what user selected
                 display_selected_batters = selected_batters.copy()
                 display_selected_bowlers = selected_bowlers.copy()
 
-                # --- Batter Filters ---
+                all_batter_ids = [str(p["id"]) for p in batters] if batters else []
+                all_bowler_ids = [str(p["id"]) for p in bowlers] if bowlers else []
+
+                # ✅ Batter internal ids
                 internal_batters = []
-                if any(opt.startswith("All") for opt in selected_batters):
+
+                if any(str(opt).startswith("All") for opt in selected_batters):
                     if "All" in selected_batters:
-                        internal_batters = [b.split(" (")[0] for b in batters]  # All batters
+                        internal_batters = all_batter_ids
                         display_selected_batters = ["All"]
+
                     elif "All (RHB)" in selected_batters:
-                        internal_batters = [b.split(" (")[0] for b in batters if "(RHB)" in b.upper()]
+                        internal_batters = [
+                            str(p["id"]) for p in batters
+                            if "(RHB)" in str(p.get("name", "")).upper()
+                        ]
                         display_selected_batters = ["All (RHB)"]
+
                     elif "All (LHB)" in selected_batters:
-                        internal_batters = [b.split(" (")[0] for b in batters if "(LHB)" in b.upper()]
+                        internal_batters = [
+                            str(p["id"]) for p in batters
+                            if "(LHB)" in str(p.get("name", "")).upper()
+                        ]
                         display_selected_batters = ["All (LHB)"]
+
                 else:
-                    internal_batters = [b.split(" (")[0] for b in selected_batters]
+                    # ✅ Only keep selected ids (NO auto select all)
+                    internal_batters = [str(x) for x in selected_batters if str(x).isdigit()]
 
-                if not internal_batters:
-                    internal_batters = [b.split(" (")[0] for b in batters]
-
-                # --- Bowler Filters ---
+                # ✅ Bowler internal ids
                 internal_bowlers = []
-                if any(opt.startswith("All") for opt in selected_bowlers):
+
+                if any(str(opt).startswith("All") for opt in selected_bowlers):
                     if "All" in selected_bowlers:
-                        internal_bowlers = [b.split(" (")[0] for b in bowlers]
+                        internal_bowlers = all_bowler_ids
                         display_selected_bowlers = ["All"]
+
                     else:
-                        selected_types = [s for s in selected_bowlers if s.startswith("All (")]
+                        selected_types = [s for s in selected_bowlers if str(s).startswith("All (")]
                         skills = [s.split("(")[1].replace(")", "").strip().upper() for s in selected_types]
-                        internal_bowlers = [b.split(" (")[0] for b in bowlers if any(skill in b.upper() for skill in skills)]
-                        display_selected_bowlers = [f"All ({'/'.join(skills)})"]
+
+                        internal_bowlers = [
+                            str(p["id"]) for p in bowlers
+                            if any(f"({skill})" in str(p.get("name", "")).upper() for skill in skills)
+                        ]
+                        display_selected_bowlers = selected_types
+
                 else:
-                    internal_bowlers = [b.split(" (")[0] for b in selected_bowlers]
+                    # ✅ Only keep selected ids (NO auto select all)
+                    internal_bowlers = [str(x) for x in selected_bowlers if str(x).isdigit()]
 
-                if not internal_bowlers:
-                    internal_bowlers = [b.split(" (")[0] for b in bowlers]
-
-                # ✅ Apply internally but keep dropdown clean
+                # ✅ Apply internally for DB queries ONLY (do not affect UI selected state)
                 request.form = request.form.copy()
                 request.form.setlist("batters[]", internal_batters)
                 request.form.setlist("bowlers[]", internal_bowlers)
 
             except Exception as e:
                 print("⚠️ Error applying 'All' filter logic:", e)
+                display_selected_batters = []
+                display_selected_bowlers = []
+
+
+
 
 
             
@@ -1619,15 +2049,23 @@ def advanced_filters():
                 conn.close()
                 print(f"Data rows {len(df)} ")
                 # --- FILTER df BY SELECTED TEAM (minimal change) ---
+                # --- ✅ FILTER df BY SELECTED TEAM ID ---
                 if selected_team and df is not None and not df.empty:
                     try:
+                        team_id = str(selected_team).strip()
+
                         if selected_type == "batter":
-                            df = df[df['scrM_tmMIdBattingName'] == selected_team]
+                            if "scrM_tmMIdBatting" in df.columns:
+                                df = df[df["scrM_tmMIdBatting"].astype(str).str.strip() == team_id]
                         else:
-                            df = df[df['scrM_tmMIdBowlingName'] == selected_team]
-                        print(f"Filtered df rows for team {selected_team}: {len(df)}")
+                            if "scrM_tmMIdBowling" in df.columns:
+                                df = df[df["scrM_tmMIdBowling"].astype(str).str.strip() == team_id]
+
+                        print(f"✅ Filtered df rows for team {team_id}: {len(df)}")
+
                     except Exception as e:
-                        print("Error filtering df by selected_team:", e)
+                        print("❌ Error filtering df by selected_team:", e)
+
 
                 # --- ✅ Apply PHASE filter to df (for Player vs Player consistency) ---
                 if df is not None and not df.empty:
@@ -1736,21 +2174,101 @@ def advanced_filters():
             except Exception as e:
                 print("Error loading data from DB:", e)
 
+            # ✅ Convert selected batter/bowler IDs → names for reports that need names
+            selected_batter_ids = request.form.getlist("batters[]")
+            selected_bowler_ids = request.form.getlist("bowlers[]")
+
+            batter_id_to_name = {str(p["id"]): p["name"] for p in batters} if batters else {}
+            bowler_id_to_name = {str(p["id"]): p["name"] for p in bowlers} if bowlers else {}
+
+            selected_batter_names = [
+                batter_id_to_name.get(str(i)) for i in selected_batter_ids
+                if batter_id_to_name.get(str(i))
+            ]
+
+            selected_bowler_names = [
+                bowler_id_to_name.get(str(i)) for i in selected_bowler_ids
+                if bowler_id_to_name.get(str(i))
+            ]
+
+            print("✅ Selected Batter Names:", selected_batter_names)
+            print("✅ Selected Bowler Names:", selected_bowler_names)
+
+
             # Generate Combined KPI Tables (Match + Total Summary in one)
             if df is not None and not df.empty:
+
+                # ✅ Get selected IDs from form
+                selected_batter_ids = request.form.getlist("batters[]")
+                selected_bowler_ids = request.form.getlist("bowlers[]")
+
+                # ✅ Remove "All" / invalid values safely
+                selected_batter_ids = [x for x in selected_batter_ids if str(x).isdigit()]
+                selected_bowler_ids = [x for x in selected_bowler_ids if str(x).isdigit()]
+
+                # ✅ Convert batter IDs -> batter Names
+                selected_batter_names = []
+                if selected_batter_ids and "scrM_PlayMIdStriker" in df.columns:
+                    selected_batter_names = (
+                        df[df["scrM_PlayMIdStriker"].astype(str).isin(selected_batter_ids)]
+                        ["scrM_PlayMIdStrikerName"]
+                        .dropna()
+                        .unique()
+                        .tolist()
+                    )
+
+                # ✅ Convert bowler IDs -> bowler Names
+                selected_bowler_names = []
+                if selected_bowler_ids and "scrM_PlayMIdBowler" in df.columns:
+                    selected_bowler_names = (
+                        df[df["scrM_PlayMIdBowler"].astype(str).isin(selected_bowler_ids)]
+                        ["scrM_PlayMIdBowlerName"]
+                        .dropna()
+                        .unique()
+                        .tolist()
+                    )
+
+                # ✅ Generate Player vs Player tables
                 pvp_tables = generate_player_vs_player_table(
                     df,
                     selected_type,
-                    batters=request.form.getlist("batters[]"),
-                    bowlers=request.form.getlist("bowlers[]")
+                    batters=selected_batter_names,
+                    bowlers=selected_bowler_names
                 )
-                kpi_tables = generate_kpi_with_summary_tables(df, selected_type, player_vs_player_tables=pvp_tables)
+
+                # ✅ Generate KPI tables
+                kpi_tables = generate_kpi_with_summary_tables(
+                    df,
+                    selected_type,
+                    player_vs_player_tables=pvp_tables
+                )
+
+                # ✅ Fallback in case KPI is empty (avoid blank UI)
+                if not kpi_tables:
+                    kpi_tables = {
+                        "No Data": "<p class='text-center text-slate-600 dark:text-zink-200'>No KPI data found</p>"
+                    }
+
             else:
-                kpi_tables = {"No Data": "<p class='text-center text-slate-600 dark:text-zink-200'>No data found</p>"}
+                kpi_tables = {
+                    "No Data": "<p class='text-center text-slate-600 dark:text-zink-200'>No data found</p>"
+                }
+
 
             # Fetch ball-by-ball details
             print("Fetching ball-by-ball details...")
-            ball_by_ball_df = get_ball_by_ball_details(selected_matches)
+            ball_by_ball_df = get_ball_by_ball_details(
+                selected_matches,
+                batters=request.form.getlist("batters[]"),
+                bowlers=request.form.getlist("bowlers[]"),
+                inning=selected_inning,
+                session=selected_session,
+                day=selected_day,
+                from_over=from_over,
+                to_over=to_over,
+                view_type=selected_type
+            )
+
             # ✅ Filter videos by selected metric
             if selected_metric and not ball_by_ball_df.empty:
                 selected_metric_lower = selected_metric.lower().strip()
@@ -1793,11 +2311,16 @@ def advanced_filters():
                 
                 selected_batters_list = request.form.getlist("batters[]")
                 if selected_batters_list:
-                    ball_by_ball_df = ball_by_ball_df[ball_by_ball_df['scrM_PlayMIdStrikerName'].isin(selected_batters_list)]
+                    ball_by_ball_df = ball_by_ball_df[
+                        ball_by_ball_df['scrM_PlayMIdStriker'].astype(str).isin([str(x) for x in selected_batters_list])
+                    ]
 
                 selected_bowlers_list = request.form.getlist("bowlers[]")
                 if selected_bowlers_list:
-                    ball_by_ball_df = ball_by_ball_df[ball_by_ball_df['scrM_PlayMIdBowlerName'].isin(selected_bowlers_list)]
+                    ball_by_ball_df = ball_by_ball_df[
+                        ball_by_ball_df['scrM_PlayMIdBowler'].astype(str).isin([str(x) for x in selected_bowlers_list])
+                    ]
+
 
                 # Apply Over Filters (handles partial inputs too)
                 if from_over or to_over:
@@ -1903,15 +2426,29 @@ def advanced_filters():
                         print("Error applying ball phase to ball_by_ball_df:", e)
 
                 # --- FILTER ball_by_ball_df BY SELECTED TEAM (minimal change) ---
+                # --- ✅ FILTER ball_by_ball_df BY SELECTED TEAM ID ---
+                # ✅ FILTER ball_by_ball_df BY TEAM ID
                 if selected_team and not ball_by_ball_df.empty:
                     try:
+                        team_id = str(selected_team).strip()
+
                         if selected_type == "batter":
-                            ball_by_ball_df = ball_by_ball_df[ball_by_ball_df['scrM_tmMIdBattingName'] == selected_team]
+                            if "scrM_tmMIdBatting" in ball_by_ball_df.columns:
+                                ball_by_ball_df = ball_by_ball_df[
+                                    ball_by_ball_df["scrM_tmMIdBatting"].astype(str).str.strip() == team_id
+                                ]
                         else:
-                            ball_by_ball_df = ball_by_ball_df[ball_by_ball_df['scrM_tmMIdBowlingName'] == selected_team]
-                        print(f"Filtered ball_by_ball_df rows for team {selected_team}: {len(ball_by_ball_df)}")
+                            if "scrM_tmMIdBowling" in ball_by_ball_df.columns:
+                                ball_by_ball_df = ball_by_ball_df[
+                                    ball_by_ball_df["scrM_tmMIdBowling"].astype(str).str.strip() == team_id
+                                ]
+
+                        print(f"✅ Filtered ball_by_ball_df rows for team {team_id}: {len(ball_by_ball_df)}")
+
                     except Exception as e:
-                        print("Error filtering ball_by_ball_df by selected_team:", e)
+                        print("❌ Error filtering ball_by_ball_df by selected_team:", e)
+
+
 
 
             if not ball_by_ball_df.empty:
@@ -1942,11 +2479,11 @@ def advanced_filters():
                         # ✅ Check if single match is selected
                         is_single_match = len(selected_matches) == 1 if selected_matches else False
                         line_length_report = generate_line_length_report(
-                                                df,
-                                                selected_metric=selected_metric,
-                                                is_single_match=is_single_match,
-                                                selected_type=selected_type
-                                            )
+                            ball_by_ball_df,
+                            selected_metric=selected_metric,
+                            is_single_match=is_single_match,
+                            selected_type=selected_type
+                        )
 
                     else:
                         print("⚠️ No data found after filters — retaining last heatmap.")
@@ -1961,31 +2498,55 @@ def advanced_filters():
                 else:
                     # 🆕 Bowler perspective (runs conceded, delivery focus)
                     try:
-                        # Ensure bowler columns exist
-                        if not ball_by_ball_df.empty:
-                            # Create copies for clarity
+                        if ball_by_ball_df is not None and not ball_by_ball_df.empty:
+
                             df_bowl = ball_by_ball_df.copy()
 
-                            # For bowler perspective, only rename player/team columns, NOT pitch columns
-                            df_bowl["scrM_PlayMIdStrikerName"] = df_bowl["scrM_PlayMIdBowlerName"]
-                            df_bowl["scrM_tmMIdBattingName"] = df_bowl["scrM_tmMIdBowlingName"]
-                            df_bowl["scrM_BatPitchArea_zName"] = df_bowl["scrM_PitchArea_zName"]
-                            # DO NOT overwrite pitch columns, keep scrM_PitchX and scrM_PitchY as is
+                            # ✅ Ensure scrM_Line & scrM_Length exist
+                            if "scrM_Line" not in df_bowl.columns and "scrM_PitchXPos" in df_bowl.columns:
+                                df_bowl["scrM_Line"] = df_bowl["scrM_PitchXPos"]
 
-                            # ✅ Generate bowler-based reports
+                            if "scrM_Length" not in df_bowl.columns and "scrM_PitchYPos" in df_bowl.columns:
+                                df_bowl["scrM_Length"] = df_bowl["scrM_PitchYPos"]
+
+                            # ✅ Bowler mode: make bowler behave like striker for reporting
+                            if "scrM_PlayMIdBowlerName" in df_bowl.columns:
+                                df_bowl["scrM_PlayMIdStrikerName"] = df_bowl["scrM_PlayMIdBowlerName"]
+
+                            if "scrM_PlayMIdBowler" in df_bowl.columns:
+                                df_bowl["scrM_PlayMIdStriker"] = df_bowl["scrM_PlayMIdBowler"]
+
+                            # ✅ Team swap for bowler report
+                            if "scrM_tmMIdBowlingName" in df_bowl.columns:
+                                df_bowl["scrM_tmMIdBattingName"] = df_bowl["scrM_tmMIdBowlingName"]
+
+                            if "scrM_tmMIdBowling" in df_bowl.columns:
+                                df_bowl["scrM_tmMIdBatting"] = df_bowl["scrM_tmMIdBowling"]
+
+                            # ✅ Use pitch area as batting pitch area (required by some reports)
+                            if "scrM_PitchArea_zName" in df_bowl.columns:
+                                df_bowl["scrM_BatPitchArea_zName"] = df_bowl["scrM_PitchArea_zName"]
+
                             # ✅ Check if single match is selected
                             is_single_match = len(selected_matches) == 1 if selected_matches else False
+
+                            # ✅ IMPORTANT: Heatmap must use df_bowl (NOT df)
                             line_length_report = generate_line_length_report(
                                 df_bowl,
                                 selected_metric=selected_metric,
                                 is_single_match=is_single_match,
                                 selected_type="bowler"
                             )
+
                             areawise_report = generate_areawise_report(df_bowl)
                             shottype_report = generate_shottype_report(df_bowl)
                             deliverytype_report = generate_deliverytype_report(df_bowl)
+
                         else:
-                            line_length_report = areawise_report = shottype_report = deliverytype_report = None
+                            print("⚠️ No ball-by-ball data for bowler mode.")
+                            line_length_report = {'heatmap_data': {}, 'totals': {}, 'table_data': [], 'pitch_points': []}
+                            areawise_report = shottype_report = deliverytype_report = None
+
                     except Exception as e:
                         print("❌ Bowler report generation error:", e)
 
@@ -2070,6 +2631,8 @@ def heatmap_matrix():
     - Ensures pitch_points includes zone_key for every ball
     - Fixes selected_type logic (JSON request)
     - Keeps your All-match + skill + ball-phase logic intact
+    - ✅ PitchPad run filter support (All / 0 / 1 / 2 / 3 / 4 / 6 / W)
+    - ✅ NEW: Filters heatmap ONLY by selected Player (Player Analysis 1)
     """
     import re
     import pandas as pd
@@ -2077,10 +2640,19 @@ def heatmap_matrix():
     try:
         # ---------------- Parse Input JSON ----------------
         data = request.get_json(force=True) or {}
+
         metric = (data.get("metric") or "").strip()
         matches = data.get("matches", []) or []
         team = data.get("team")
         view_type = (data.get("type") or "batter").strip()  # ✅ batter/bowler
+
+        # ✅ NEW: Selected Player from Player Analysis 1 dropdown
+        player = data.get("player")
+        if player is not None:
+            player = str(player).strip()
+
+        # ✅ PitchPad filter (All/0/1/2/3/4/6/W)
+        pitch_run_filter = str(data.get("pitch_run_filter", "all")).strip()
 
         def sanitize_field(val):
             try:
@@ -2096,6 +2668,7 @@ def heatmap_matrix():
         phase = data.get("phase")
         from_over = data.get("from_over")
         to_over = data.get("to_over")
+
         batters = data.get("batters", []) or []
         bowlers = data.get("bowlers", []) or []
         ball_phase = data.get("ball_phase")
@@ -2180,11 +2753,11 @@ def heatmap_matrix():
             try:
                 conn2 = get_connection()
                 df_matches = pd.read_sql(
-                    "SELECT mchM_MatchName FROM tblmatchmaster WHERE mchM_MatchName IS NOT NULL",
+                    "SELECT mchM_Id FROM tblmatchmaster WHERE mchM_Id IS NOT NULL",
                     conn2,
                 )
-                conn2.close()
-                matches = df_matches["mchM_MatchName"].astype(str).tolist() if not df_matches.empty else []
+                matches = df_matches["mchM_Id"].astype(str).tolist() if not df_matches.empty else []
+
             except Exception:
                 matches = []
 
@@ -2203,7 +2776,7 @@ def heatmap_matrix():
         conn = get_connection()
         df = get_filtered_score_data(
             conn,
-            match_names=matches if match_filter_applied else None,
+            matches if match_filter_applied else None,   # ✅ positional match_ids
             batters=batters,
             bowlers=bowlers,
             inning=inning,
@@ -2213,16 +2786,45 @@ def heatmap_matrix():
             from_over=from_over,
             to_over=to_over,
             type=view_type,
-            ball_phase=None,  # handled later in Python
+            ball_phase=None,
         )
         conn.close()
 
-        try:
-            df_len = len(df) if df is not None else 0
-        except Exception:
-            df_len = 0
+        df_len = len(df) if df is not None else 0
+        print(f"[DEBUG] heatmap_matrix after fetch: player={player}, matches={matches}, batters={batters}, bowlers={bowlers}, batters_skill={batters_skill}, bowlers_skill={bowlers_skill}, pitch_run_filter={pitch_run_filter}, df_rows={df_len}")
 
-        print(f"[DEBUG] heatmap_matrix after fetch: matches={matches}, batters={batters}, bowlers={bowlers}, batters_skill={batters_skill}, bowlers_skill={bowlers_skill}, df_rows={df_len}")
+        if df is None or df.empty:
+            return jsonify({"heatmap_data": {}, "totals": {}, "pitch_points": []})
+
+        # ✅ NEW: Filter only selected player balls
+        # ✅ NEW: Filter only selected player balls
+        if player and player.lower() not in ("all", "select", "undefined"):
+            try:
+                player_str = str(player).strip()
+
+                if view_type == "batter":
+                    # by striker id
+                    if player_str.isdigit() and "scrM_PlayMIdStriker" in df.columns:
+                        df = df[df["scrM_PlayMIdStriker"].astype(str).str.strip() == player_str]
+
+                    # by striker name
+                    if df.empty and "scrM_PlayMIdStrikerName" in df.columns:
+                        df = df[df["scrM_PlayMIdStrikerName"].astype(str).str.strip().str.lower() == player_str.lower()]
+
+                else:
+                    # by bowler id
+                    if player_str.isdigit() and "scrM_PlayMIdBowler" in df.columns:
+                        df = df[df["scrM_PlayMIdBowler"].astype(str).str.strip() == player_str]
+
+                    # by bowler name
+                    if df.empty and "scrM_PlayMIdBowlerName" in df.columns:
+                        df = df[df["scrM_PlayMIdBowlerName"].astype(str).str.strip().str.lower() == player_str.lower()]
+
+                print(f"✅ Player Filter applied => view_type={view_type}, player={player_str}, rows={len(df)}")
+
+            except Exception as e:
+                print("⚠️ Player filtering failed:", e)
+
 
         if df is None or df.empty:
             return jsonify({"heatmap_data": {}, "totals": {}, "pitch_points": []})
@@ -2305,10 +2907,9 @@ def heatmap_matrix():
 
             # Special handling for high-level tokens 'PACE' / 'SPIN'
             if bws in ("PACE", "SPIN"):
-                pace_keywords = ['FAST','FAST-MEDIUM','MEDIUM FAST','RAF','RAMF','LAF','LAMF','MF','F']
-                spin_keywords = ['SPIN','OFF','LEG','LEFT-ARM','RIGHT-ARM','OFFBREAK','LEGBREAK','SLOW','CHINAMAN']
+                pace_keywords = ['FAST', 'FAST-MEDIUM', 'MEDIUM FAST', 'RAF', 'RAMF', 'LAF', 'LAMF', 'MF', 'F']
+                spin_keywords = ['SPIN', 'OFF', 'LEG', 'LEFT-ARM', 'RIGHT-ARM', 'OFFBREAK', 'LEGBREAK', 'SLOW', 'CHINAMAN']
                 kws = pace_keywords if bws == 'PACE' else spin_keywords
-                # build OR regex, match any keyword within the skill string
                 try:
                     pattern = r"(?:" + r"|".join([re.escape(k.upper()) for k in kws]) + r")"
                     for col in cols:
@@ -2318,7 +2919,6 @@ def heatmap_matrix():
                         except Exception:
                             continue
                 except Exception:
-                    # fallback to naive contains
                     for col in cols:
                         try:
                             df = df[df[col].astype(str).str.upper().str.contains(bws, na=False)]
@@ -2334,11 +2934,64 @@ def heatmap_matrix():
                         continue
 
         # ---------------- Team Filter ----------------
+        # ---------------- ✅ Team Filter (ID Safe + Name fallback) ----------------
         if team:
-            if view_type == "batter" and "scrM_tmMIdBattingName" in df.columns:
-                df = df[df["scrM_tmMIdBattingName"] == team]
-            elif view_type == "bowler" and "scrM_tmMIdBowlingName" in df.columns:
-                df = df[df["scrM_tmMIdBowlingName"] == team]
+            try:
+                team_val = str(team).strip()
+
+                # ✅ if team id is coming (example "275")
+                if team_val.isdigit():
+
+                    if view_type == "batter":
+                        if "scrM_tmMIdBatting" in df.columns:
+                            df = df[df["scrM_tmMIdBatting"].astype(str).str.strip() == team_val]
+                        elif "scrM_tmMIdBattingName" in df.columns:
+                            # fallback if you stored id in name column (rare)
+                            df = df[df["scrM_tmMIdBattingName"].astype(str).str.strip() == team_val]
+
+                    else:
+                        if "scrM_tmMIdBowling" in df.columns:
+                            df = df[df["scrM_tmMIdBowling"].astype(str).str.strip() == team_val]
+                        elif "scrM_tmMIdBowlingName" in df.columns:
+                            df = df[df["scrM_tmMIdBowlingName"].astype(str).str.strip() == team_val]
+
+                else:
+                    # ✅ if team name is coming (example "HYD")
+                    if view_type == "batter" and "scrM_tmMIdBattingName" in df.columns:
+                        df = df[df["scrM_tmMIdBattingName"].astype(str).str.strip() == team_val]
+
+                    elif view_type == "bowler" and "scrM_tmMIdBowlingName" in df.columns:
+                        df = df[df["scrM_tmMIdBowlingName"].astype(str).str.strip() == team_val]
+
+                print(f"✅ heatmap_matrix Team Filter applied => team={team_val}, view_type={view_type}, rows={len(df)}")
+
+            except Exception as e:
+                print("⚠️ Team filtering failed in heatmap_matrix:", e)
+
+
+        # ✅ PitchPad Runs/Wicket Filter (must happen BEFORE heatmap generation)
+        if pitch_run_filter and pitch_run_filter.lower() != "all":
+
+            if "scrM_IsWicket" in df.columns:
+                df["scrM_IsWicket"] = pd.to_numeric(df["scrM_IsWicket"], errors="coerce").fillna(0).astype(int)
+
+            if "scrM_BatsmanRuns" in df.columns:
+                df["scrM_BatsmanRuns"] = pd.to_numeric(df["scrM_BatsmanRuns"], errors="coerce").fillna(0).astype(int)
+
+            if str(pitch_run_filter).upper() == "W":
+                if "scrM_IsWicket" in df.columns:
+                    df = df[df["scrM_IsWicket"] == 1]
+            else:
+                try:
+                    run_val = int(str(pitch_run_filter).strip())
+                except Exception:
+                    run_val = None
+
+                if run_val is not None and "scrM_BatsmanRuns" in df.columns:
+                    if "scrM_IsWicket" in df.columns:
+                        df = df[(df["scrM_IsWicket"] != 1) & (df["scrM_BatsmanRuns"] == run_val)]
+                    else:
+                        df = df[df["scrM_BatsmanRuns"] == run_val]
 
         if df.empty:
             return jsonify({"heatmap_data": {}, "totals": {}, "pitch_points": []})
@@ -2368,7 +3021,7 @@ def heatmap_matrix():
             "scrM_OverNo", "scrM_DelNo", "scrM_InningNo", "scrM_BallID",
             "scrM_StrikerBatterSkill", "scrM_BowlerSkill",
             "scrM_PlayMIdStrikerName", "scrM_PlayMIdBowlerName",
-            "zone_key", "Zone"  # ✅ keep zone columns also
+            "zone_key", "Zone"
         ]
 
         pitch_points = []
@@ -2408,7 +3061,6 @@ def heatmap_matrix():
             point["scrM_BallID"] = ball_id
 
             # ✅ Ensure python heatmap click mapping exists
-            # If zone_key is not present, fallback to Zone
             if "zone_key" not in point or not point.get("zone_key"):
                 z = row.get("Zone")
                 if z is not None and not (isinstance(z, float) and pd.isna(z)):
@@ -2427,6 +3079,7 @@ def heatmap_matrix():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
 
 
 
@@ -2661,7 +3314,7 @@ def video_player():
             if path:
                 video_list.append(path)
 
-    # 🆕 Handle ?balls=1234,1235,...
+    # 🆕 Handle ?balls=1234,1235,...  (Heatmap Zone Playback)
     if balls_param and not video_list:
         try:
             ball_ids = [b.strip() for b in balls_param.split(",") if b.strip()]
@@ -2709,10 +3362,26 @@ def video_player():
     match_id = request.args.get("match_id")
     inning_id = request.args.get("inning_id")
 
+    # ✅ FIX: keep match_id numeric if possible
+    try:
+        if match_id is not None:
+            match_id = int(match_id)
+    except:
+        pass
+
+    try:
+        if inning_id is not None:
+            inning_id = int(inning_id)
+    except:
+        pass
+
     del_id = request.args.get("del_id") or request.args.get("delid") or request.args.get("delivery_id")
+
+    # ✅ Single ball playback
     if del_id and not video_list:
         try:
             print(f"🎯 /video_player received single-ball del_id={del_id}")
+
             conn = get_connection()
             query = """
                 SELECT scrM_DelId,
@@ -2744,23 +3413,37 @@ def video_player():
 
             video_list = list(dict.fromkeys(video_list))
             print(f"✅ Found {len(video_list)} videos for delivery {del_id}")
+
         except Exception as e:
             print(f"❌ Error fetching video for del_id={del_id}: {e}")
             video_list = []
 
     # -----------------------------
-    # 4️⃣ Normalize metric
+    # 4️⃣ Normalize metric (✅ FIXED)
     # -----------------------------
+    # ✅ IMPORTANT:
+    # Keep metrics as full names because fetch_metric_videos() expects those
     metric_map = {
-        "runs": "R", "R": "R",
-        "balls": "B", "B": "B",
-        "fours": "4", "4": "4",
-        "sixes": "6", "6": "6",
-        "sr": "SR", "SR": "SR",
-        "wickets": "W", "W": "W",
-        "dots": "D", "D": "D",
-        "maidens": "M", "M": "M"
+        "runs": "runs",
+        "balls": "balls",
+        "fours": "fours",
+        "sixes": "sixes",
+        "dots": "dots",
+        "wickets": "wickets",
+
+        # If bowler metrics are coming as short
+        "O": "overs",
+        "R": "runs",
+        "W": "wickets",
+        "D": "dots",
+        "M": "maidens",
+
+        # If someone sends full already
+        "overs": "overs",
+        "maidens": "maidens",
     }
+
+    metric_raw = (metric_raw or "").strip()
     metric = metric_map.get(metric_raw, metric_raw)
 
     # -----------------------------
@@ -2768,13 +3451,17 @@ def video_player():
     # -----------------------------
     if not video_list and (batter_id or bowler_id) and metric and match_id and inning_id:
         try:
+            print("🎥 fetch_metric_videos called with =>",
+                  f"batter_id={batter_id}, bowler_id={bowler_id}, metric={metric}, match_id={match_id}, inning_id={inning_id}")
+
             video_list = fetch_metric_videos(
                 batter_id=batter_id,
                 bowler_id=bowler_id,
-                metric=metric,
+                metric=metric,   # ✅ sends full word metric now
                 match_id=match_id,
                 inning_id=inning_id
             )
+
         except Exception as e:
             print("❌ fetch_metric_videos failed:", e)
             video_list = []
@@ -2788,20 +3475,26 @@ def video_player():
         if not v:
             return None
         v = str(v)
+
         if v.startswith("http://") or v.startswith("https://"):
             return v
+
         if v.startswith("/"):
             return v
+
         abs_v = os.path.realpath(v)
+
         if os.path.exists(abs_v):
             if abs_v.startswith(static_root):
                 rel = os.path.relpath(abs_v, static_root).replace(os.path.sep, "/")
                 return url_for("static", filename=rel)
             return url_for("local_video") + "?path=" + urllib.parse.quote_plus(abs_v)
+
         return v
 
     final_videos = []
     seen = set()
+
     for v in video_list:
         url = make_accessible_url(v)
         if url and url not in seen:
@@ -2893,35 +3586,160 @@ def video_player():
         const playPauseBtn = document.getElementById("playPause");
         const videoStatus = document.getElementById("videoStatus");
 
-        function formatTime(sec){let m=Math.floor(sec/60), s=Math.floor(sec%60);return m+":"+(s<10?"0"+s:s);}
-        function loadVideo(i){ if(i<0||i>=videos.length) return; index=i; player.src=videos[index]; player.play(); resizeCanvas(); videoStatus.textContent="Playing "+(index+1)+" of "+videos.length; }
-        function nextVideo(){loadVideo(index+1);} function prevVideo(){loadVideo(index-1);} if(videos.length>0){loadVideo(0);} else {alert("No video found for this metric");}
+        function formatTime(sec){
+          let m=Math.floor(sec/60), s=Math.floor(sec%60);
+          return m+":"+(s<10?"0"+s:s);
+        }
+
+        function loadVideo(i){
+          if(i<0||i>=videos.length) return;
+          index=i;
+          player.src=videos[index];
+          player.play();
+          resizeCanvas();
+          videoStatus.textContent="Playing "+(index+1)+" of "+videos.length;
+        }
+
+        function nextVideo(){ loadVideo(index+1); }
+        function prevVideo(){ loadVideo(index-1); }
+
+        if(videos.length>0){
+          loadVideo(0);
+        } else {
+          alert("No video found for this metric");
+        }
+
         let drawing=false,startX=0,startY=0,tool="pen",color="red",lineWidth=3,history=[];
-        function resizeCanvas(){canvas.width=player.clientWidth;canvas.height=player.clientHeight;}
+
+        function resizeCanvas(){
+          canvas.width=player.clientWidth;
+          canvas.height=player.clientHeight;
+        }
+
         window.addEventListener("resize",resizeCanvas);
-        player.addEventListener("loadedmetadata",()=>{resizeCanvas();seekBar.max=player.duration;durationLabel.textContent=formatTime(player.duration);});
-        document.addEventListener("fullscreenchange",()=>{container.classList.toggle("fullscreen",!!document.fullscreenElement);resizeCanvas();});
-        function setTool(t){tool=t;} function setColor(c){color=c;}
+
+        player.addEventListener("loadedmetadata",()=>{
+          resizeCanvas();
+          seekBar.max=player.duration;
+          durationLabel.textContent=formatTime(player.duration);
+        });
+
+        document.addEventListener("fullscreenchange",()=>{
+          container.classList.toggle("fullscreen",!!document.fullscreenElement);
+          resizeCanvas();
+        });
+
+        function setTool(t){tool=t;}
+        function setColor(c){color=c;}
+
         function saveState(){history.push(canvas.toDataURL());}
-        function undo(){if(history.length>0){let img=new Image();img.onload=()=>{ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0);};img.src=history.pop();}}
-        function clearCanvas(){ctx.clearRect(0,0,canvas.width,canvas.height);history=[];}
-        canvas.addEventListener("mousedown",e=>{saveState();drawing=true;startX=e.offsetX;startY=e.offsetY;if(tool==='pen'||tool==='eraser'){ctx.beginPath();ctx.moveTo(startX,startY);}});
-        canvas.addEventListener("mousemove",e=>{if(!drawing)return;if(tool==='pen'){ctx.globalCompositeOperation='source-over';ctx.strokeStyle=color;ctx.lineWidth=lineWidth;ctx.lineTo(e.offsetX,e.offsetY);ctx.stroke();}else if(tool==='eraser'){ctx.globalCompositeOperation='destination-out';ctx.lineWidth=10;ctx.lineTo(e.offsetX,e.offsetY);ctx.stroke();}});
-        canvas.addEventListener("mouseup",e=>{if(!drawing)return;drawing=false;ctx.globalCompositeOperation='source-over';let endX=e.offsetX,endY=e.offsetY;ctx.strokeStyle=color;ctx.lineWidth=lineWidth;if(tool==='rect'){ctx.strokeRect(startX,startY,endX-startX,endY-startY);}else if(tool==='square'){let size=Math.min(Math.abs(endX-startX),Math.abs(endY-startY));ctx.strokeRect(startX,startY,size,size);}else if(tool==='circle'){let radius=Math.sqrt(Math.pow(endX-startX,2)+Math.pow(endY-startY,2));ctx.beginPath();ctx.arc(startX,startY,radius,0,Math.PI*2);ctx.stroke();}else if(tool==='triangle'){ctx.beginPath();ctx.moveTo(startX,startY);ctx.lineTo(endX,endY);ctx.lineTo(startX*2-endX,endY);ctx.closePath();ctx.stroke();}});
-        player.addEventListener("timeupdate",()=>{seekBar.value=player.currentTime;currentTimeLabel.textContent=formatTime(player.currentTime);});
-        seekBar.addEventListener("input",()=>{player.currentTime=seekBar.value;});
-        function togglePlayPause(){if(player.paused){player.play();playPauseBtn.textContent="⏸ Pause";}else{player.pause();playPauseBtn.textContent="▶️ Play";}}
-        function rewind(){player.currentTime=Math.max(0,player.currentTime-10);} function forward(){player.currentTime=Math.min(player.duration,player.currentTime+10);}
-        function toggleFullscreen(){if(!document.fullscreenElement){container.requestFullscreen();}else{document.exitFullscreen();}}
-        
-        // ✅ AUTO-PLAY NEXT VIDEO WITH LOOP: When current video ends, play next or restart from first
+
+        function undo(){
+          if(history.length>0){
+            let img=new Image();
+            img.onload=()=>{
+              ctx.clearRect(0,0,canvas.width,canvas.height);
+              ctx.drawImage(img,0,0);
+            };
+            img.src=history.pop();
+          }
+        }
+
+        function clearCanvas(){
+          ctx.clearRect(0,0,canvas.width,canvas.height);
+          history=[];
+        }
+
+        canvas.addEventListener("mousedown",e=>{
+          saveState();
+          drawing=true;
+          startX=e.offsetX;
+          startY=e.offsetY;
+          if(tool==='pen'||tool==='eraser'){
+            ctx.beginPath();
+            ctx.moveTo(startX,startY);
+          }
+        });
+
+        canvas.addEventListener("mousemove",e=>{
+          if(!drawing) return;
+          if(tool==='pen'){
+            ctx.globalCompositeOperation='source-over';
+            ctx.strokeStyle=color;
+            ctx.lineWidth=lineWidth;
+            ctx.lineTo(e.offsetX,e.offsetY);
+            ctx.stroke();
+          } else if(tool==='eraser'){
+            ctx.globalCompositeOperation='destination-out';
+            ctx.lineWidth=10;
+            ctx.lineTo(e.offsetX,e.offsetY);
+            ctx.stroke();
+          }
+        });
+
+        canvas.addEventListener("mouseup",e=>{
+          if(!drawing) return;
+          drawing=false;
+          ctx.globalCompositeOperation='source-over';
+          let endX=e.offsetX,endY=e.offsetY;
+          ctx.strokeStyle=color;
+          ctx.lineWidth=lineWidth;
+
+          if(tool==='rect'){
+            ctx.strokeRect(startX,startY,endX-startX,endY-startY);
+          } else if(tool==='square'){
+            let size=Math.min(Math.abs(endX-startX),Math.abs(endY-startY));
+            ctx.strokeRect(startX,startY,size,size);
+          } else if(tool==='circle'){
+            let radius=Math.sqrt(Math.pow(endX-startX,2)+Math.pow(endY-startY,2));
+            ctx.beginPath();
+            ctx.arc(startX,startY,radius,0,Math.PI*2);
+            ctx.stroke();
+          } else if(tool==='triangle'){
+            ctx.beginPath();
+            ctx.moveTo(startX,startY);
+            ctx.lineTo(endX,endY);
+            ctx.lineTo(startX*2-endX,endY);
+            ctx.closePath();
+            ctx.stroke();
+          }
+        });
+
+        player.addEventListener("timeupdate",()=>{
+          seekBar.value=player.currentTime;
+          currentTimeLabel.textContent=formatTime(player.currentTime);
+        });
+
+        seekBar.addEventListener("input",()=>{
+          player.currentTime=seekBar.value;
+        });
+
+        function togglePlayPause(){
+          if(player.paused){
+            player.play();
+            playPauseBtn.textContent="⏸ Pause";
+          } else {
+            player.pause();
+            playPauseBtn.textContent="▶️ Play";
+          }
+        }
+
+        function rewind(){ player.currentTime=Math.max(0,player.currentTime-10); }
+        function forward(){ player.currentTime=Math.min(player.duration,player.currentTime+10); }
+
+        function toggleFullscreen(){
+          if(!document.fullscreenElement){
+            container.requestFullscreen();
+          } else {
+            document.exitFullscreen();
+          }
+        }
+
+        // ✅ AUTO-PLAY NEXT VIDEO WITH LOOP
         player.addEventListener("ended", ()=>{
-          console.log("Video ended, checking for next video...");
           if(index < videos.length - 1){
-            console.log("Auto-playing next video: " + (index + 2) + " of " + videos.length);
             nextVideo();
           } else {
-            console.log("All videos completed. Restarting from first video...");
             videoStatus.textContent = "Restarting playlist (1 of " + videos.length + ")";
             loadVideo(0);
           }
@@ -2931,6 +3749,7 @@ def video_player():
     </html>
     """
     return render_template_string(template, videos=final_videos)
+
 
 
     
@@ -4741,48 +5560,91 @@ def download_report_pdf(match_id):
 
 @apps.route('/apps/calendar', methods=['GET', 'POST'])
 def calendar_default_view():
-    # 🆕 Filter tournaments by logged-in user's association
+    import pandas as pd
     from flask import session
     from flask_login import current_user
 
+    # 🆕 Filter tournaments by logged-in user's association
     association_id = None
     if current_user and getattr(current_user, "is_authenticated", False):
         association_id = getattr(current_user, "trnM_AssociationId", None) or session.get("association_id")
 
-    tournaments = get_all_tournaments(association_id)
+    # ==========================================================
+    # ✅ TOURNAMENT DROPDOWN (value=id, label=name)
+    # ==========================================================
+    tournaments_raw = get_all_tournaments(association_id) or []
+    tournaments = [
+        {"value": int(t["id"]), "label": str(t["name"])}
+        for t in tournaments_raw
+        if isinstance(t, dict) and t.get("id") and t.get("name")
+    ]
 
     teams = []
     players = []
 
+    # ✅ Read selected values (IDs)
     selected_tournament = request.form.get('tournament')
     selected_team = request.form.get('team')
-    view_type = request.form.get('view_type', 'batting')  # default batting
+    view_type = request.form.get('view_type', 'batting')
 
-    if selected_tournament:
-        # Load teams of selected tournament
-        teams = get_teams_by_tournament(selected_tournament)
+    # ✅ Safe int conversion
+    try:
+        selected_tournament_id = int(selected_tournament) if selected_tournament else None
+    except:
+        selected_tournament_id = None
 
-        # Fetch players/bowlers depending on view_type + team filter
+    try:
+        selected_team_id = int(selected_team) if selected_team else None
+    except:
+        selected_team_id = None
+
+    # ==========================================================
+    # ✅ TEAM DROPDOWN (value=id, label=shortname)
+    # ==========================================================
+    if selected_tournament_id:
+        teams_data = get_teams_by_tournament(selected_tournament_id) or []
+        teams = [
+            {"value": int(t["id"]), "label": str(t["name"])}
+            for t in teams_data
+            if isinstance(t, dict) and t.get("id") and t.get("name")
+        ]
+
+    # ==========================================================
+    # ✅ Resolve team_id -> team_short_name (AL/HYD/etc)
+    # ==========================================================
+    selected_team_name = None
+    if selected_team_id and teams:
+        for t in teams:
+            if int(t["value"]) == int(selected_team_id):
+                selected_team_name = t["label"]   # <-- "AL"
+                break
+
+    # ==========================================================
+    # ✅ PLAYERS / BOWLERS (pass team_name like before)
+    # ==========================================================
+    if selected_tournament_id:
         if view_type == "batting":
-            if selected_team:
-                players = get_players_by_team(selected_tournament, selected_team)
+            if selected_team_name:
+                players = get_players_by_team(selected_tournament_id, selected_team_name)
             else:
-                players = get_players_by_tournament(selected_tournament)
+                players = get_players_by_tournament(selected_tournament_id)
 
         elif view_type == "bowling":
-            if selected_team:
-                players = get_bowlers_by_team(selected_tournament, selected_team)
+            if selected_team_name:
+                players = get_bowlers_by_team(selected_tournament_id, selected_team_name)
             else:
-                players = get_bowlers_by_tournament(selected_tournament)
+                players = get_bowlers_by_tournament(selected_tournament_id)
 
     return render_template(
         'apps/calendar.html',
         tournaments=tournaments,
         teams=teams,
         players=players,
-        selected_tournament=selected_tournament,
-        selected_team=selected_team
+        selected_tournament=selected_tournament_id,
+        selected_team=selected_team_id,
+        view_type=view_type
     )
+
 
 @apps.route("/wagonwheel")
 def wagonwheel_api():
@@ -5017,18 +5879,25 @@ def mailbox_filters():
     if current_user and getattr(current_user, "is_authenticated", False):
         association_id = getattr(current_user, "trnM_AssociationId", None) or session.get("association_id")
 
-    tournaments = get_all_tournaments(association_id)
+    # ✅ tournaments must return list of dicts like:
+    # [{"id":"918","name":"ISPL 2026 (Season 3)"}]
+    tournaments = get_all_tournaments(association_id) or []
 
-    # ✅ Unified: works for GET and POST
-    selected_tournament = request.values.get("tournament")
-    selected_team = request.values.get("team")
-    selected_match = request.values.get("match")  # always "match"
+    # ✅ works for GET + POST
+    selected_tournament = request.values.get("tournament")  # tournament_id
+    selected_team = request.values.get("team")              # team_id
+    selected_match = request.values.get("match")            # match_id
 
+    # ✅ Clean IDs
+    selected_tournament = str(selected_tournament).strip() if selected_tournament else None
+    selected_team = str(selected_team).strip() if selected_team else None
+    selected_match = str(selected_match).strip() if selected_match else None
+
+    # ✅ load teams + matches based on selected IDs
     teams = get_teams_by_tournament(selected_tournament) if selected_tournament else []
-    matches = get_matches_by_team(selected_team, selected_tournament) if selected_team else []
+    matches = get_matches_by_team(selected_team, selected_tournament) if (selected_team and selected_tournament) else []
 
-
-    # If no match selected → render filter page
+    # ✅ No match selected -> show filter page
     if not selected_match:
         return render_template(
             "apps/apps-mailbox.html",
@@ -5041,23 +5910,25 @@ def mailbox_filters():
             match_header=None
         )
 
-    # If match selected → redirect to match-center
+    # ✅ Match selected -> redirect to match-center with IDs
     return redirect(
         url_for(
-            'apps.match_center',
-            match=selected_match,
-            tournament=selected_tournament,
-            team=selected_team
+            "apps.match_center",
+            match=selected_match,              # ✅ MATCH_ID
+            tournament=selected_tournament,    # ✅ TOURNAMENT_ID
+            team=selected_team                 # ✅ TEAM_ID
         )
     )
+
 
 
 # ---------------------------------------
 # 2. Match Center (Uses JSON Cache Builder)
 # ---------------------------------------
 @apps.route('/apps/match-center', methods=['GET', 'POST'])
+@login_required
 def match_center(
-    match_name=None,
+    match_id=None,
     tournaments=None,
     teams=None,
     matches=None,
@@ -5065,18 +5936,14 @@ def match_center(
     selected_team=None
 ):
     # ✅ Always pull from request first
-    match_name = (
+    match_id = (
         request.values.get("match")
         or request.values.get("selected_match")
-        or match_name
+        or match_id
     )
+    match_id = str(match_id).strip() if match_id else None
 
-    print("🔹 Request args:", dict(request.args))
-    print("🔹 Request form:", dict(request.form))
-    print("🔹 Final match_name:", match_name)
-
-    if not match_name:
-        return render_template("apps/apps-mailbox.html", match_header=None)
+    view_type = request.values.get("view_type", "scorecard")
 
     selected_tournament = selected_tournament or request.values.get("tournament")
     selected_team = selected_team or request.values.get("team")
@@ -5091,27 +5958,107 @@ def match_center(
 
     tournaments = tournaments or get_all_tournaments(association_id)
     teams = teams or (get_teams_by_tournament(selected_tournament) if selected_tournament else [])
-    matches = matches or (get_matches_by_team(selected_team) if selected_team else [])
+    matches = matches or (get_matches_by_team(selected_team, selected_tournament) if selected_team else [])
 
-    # ✅ Use JSON builder directly
+    # ✅ If REPORT selected -> redirect
+    if view_type == "report":
+        return redirect(url_for(
+            "apps.match_reports",
+            tournament=selected_tournament,
+            team=selected_team,
+            match=match_id,
+            view_type="report"
+        ))
+
+    # ✅ No match selected → only filters
+    if not match_id:
+        return render_template(
+            "apps/apps-mailbox.html",
+            tournaments=tournaments,
+            teams=teams,
+            matches=matches,
+            selected_tournament=selected_tournament,
+            selected_team=selected_team,
+            selected_match=None,
+            match_header=None,
+            match_innings=[],
+            last_12_balls=[],
+            scorecard_data={},
+            selected_inning="1",
+            MatchStatus="",
+            view_type="scorecard"
+        )
+
+    # ✅ Generate scorecard JSON (match_id only)
     force = request.args.get("force") == "1"
-    scorecard_json = generate_scorecard_json(match_name, live=True, force=force)
+    scorecard_json = generate_scorecard_json(match_id, live=True, force=force) or {}
 
-    match_header = scorecard_json.get("match_header", {})
-    match_innings = [i.get("meta", {}) for i in scorecard_json.get("innings", [])]
-    last_12_balls = scorecard_json.get("last_12_balls", [])
+    match_header = scorecard_json.get("match_header", {}) or {}
+
+    # ✅ DB innings summary
+    match_innings = get_match_innings(match_id) or []
+
+    # ✅ Last 12 balls
+    last_12_balls = scorecard_json.get("last_12_balls", []) or []
+    if not last_12_balls:
+        try:
+            last_12_balls = get_last_12_deliveries(match_id) or []
+        except Exception as e:
+            print("❌ last_12_balls fallback error:", e)
+            last_12_balls = []
+
+    # ✅ Match Status
     match_status = scorecard_json.get("MatchStatus", "Match Result Not Available")
-
-    # Attach computed/DB status directly
     match_header["match_status"] = match_status
 
-    # Inning dict keyed by inn_no
-    scorecard_data = {i["inn_no"]: i for i in scorecard_json.get("innings", [])}
+    # ✅ ==========================
+    # ✅ SCORECARD DATA (SAFE BUILD)
+    # ✅ ==========================
 
-    # ✅ Precompute safe player_name
+    # ✅ Try using scorecard_data directly (if exists)
+    scorecard_data = scorecard_json.get("scorecard_data", {}) or {}
+
+    # ✅ If scorecard_data missing -> build from innings list
+    if not scorecard_data:
+        scorecard_data = {}
+        for inn in (scorecard_json.get("innings", []) or []):
+            inn_no = str(inn.get("inn_no") or inn.get("inning_no") or "")
+            if not inn_no:
+                continue
+
+            # ✅ your HTML expects "meta", "batters", "bowlers", etc.
+            scorecard_data[inn_no] = {
+                "meta": inn.get("meta", {}) or {},
+                "batters": inn.get("batters", []) or [],
+                "bowlers": inn.get("bowlers", []) or [],
+                "fall_of_wickets": inn.get("fall_of_wickets", []) or [],
+                "partnership_chart": inn.get("partnership_chart", None),
+            }
+
+    # ✅ Inject TeamShortName from DB into meta (for tab label)
     try:
-        for inn in scorecard_json.get("innings", []):
-            for batter in inn.get("batters", []):
+        inn_team_map = {str(x.get("Inn_Inning")): (x.get("TeamShortName") or "") for x in match_innings}
+
+        for inn_no, payload in scorecard_data.items():
+            if payload is None:
+                payload = {}
+                scorecard_data[inn_no] = payload
+
+            if "meta" not in payload or payload["meta"] is None:
+                payload["meta"] = {}
+
+            if not payload["meta"].get("TeamShortName"):
+                payload["meta"]["TeamShortName"] = inn_team_map.get(str(inn_no), "")
+    except Exception as e:
+        print("⚠️ TeamShortName injection failed:", e)
+
+    # ✅ Default inning selection
+    selected_inning = str(next(iter(scorecard_data.keys()), "1"))
+
+    # ✅ Player-name safe keys (right click play/download)
+    try:
+        for inn_obj in scorecard_json.get("innings", []) or []:
+            for batter in inn_obj.get("batters", []) or []:
                 raw_name = batter.get("name", "UnknownPlayer")
                 batter["player_name"] = raw_name.strip().replace(" ", "_")
 
@@ -5119,9 +6066,10 @@ def match_center(
                 if bid and bid != "-1" and bid not in BATTER_DATA:
                     BATTER_DATA[bid] = {"df": None, "hand": batter.get("hand", "Right")}
 
-            for bowler in inn.get("bowlers", []):
+            for bowler in inn_obj.get("bowlers", []) or []:
                 raw_name = bowler.get("name", "UnknownPlayer")
                 bowler["player_name"] = raw_name.strip().replace(" ", "_")
+
     except Exception as e:
         print("⚠️ Error preparing batters/bowlers:", e)
 
@@ -5132,28 +6080,72 @@ def match_center(
         matches=matches,
         selected_tournament=selected_tournament,
         selected_team=selected_team,
-        selected_match=match_name,
+        selected_match=match_id,
         match_header=match_header,
         match_innings=match_innings,
         last_12_balls=last_12_balls,
-        scorecard_data=scorecard_data
+        scorecard_data=scorecard_data,
+        selected_inning=selected_inning,
+        MatchStatus=match_status,
+        view_type="scorecard"
     )
+
+
+
 
 
 
 # ---------------------------------------
 # 3. API Endpoint → Get Scorecard JSON
 # ---------------------------------------
-@apps.route('/apps/scorecard/json/<string:match_name>')
-def scorecard_json_api(match_name):
-    """Return raw JSON data for the given match."""
+@apps.route('/apps/scorecard/json/<string:match_id>')
+def scorecard_json_api(match_id):
+    """
+    Return raw JSON data for the given match_id.
+    ✅ match_id comes from dropdown / URL params.
+    """
+
     force = request.args.get("force") == "1"
+
+    match_id = str(match_id).strip()
+
+    # ✅ Convert match_id -> match_name
+    try:
+        conn = get_connection()
+        row = pd.read_sql(
+            """
+            SELECT mchM_MatchName
+            FROM tblmatchmaster
+            WHERE mchM_Id = %s
+            LIMIT 1
+            """,
+            conn,
+            params=(match_id,)
+        )
+        conn.close()
+
+        match_name = None
+        if not row.empty:
+            match_name = str(row.iloc[0]["mchM_MatchName"]).strip()
+
+    except Exception as e:
+        print("❌ Error fetching match_name from match_id:", e)
+        match_name = None
+
+    if not match_name:
+        return jsonify({"error": "Invalid match_id / match not found"}), 404
+
+    # ✅ Build JSON using match_name (your existing engine uses match_name)
     data = generate_scorecard_json(match_name, live=True, force=force)
 
-    # ✅ Attach match_status into header
+    # ✅ Attach match_status into header safely
+    if "match_header" not in data or not isinstance(data["match_header"], dict):
+        data["match_header"] = {}
+
     data["match_header"]["match_status"] = data.get("MatchStatus", "Match Result Not Available")
 
     return jsonify(data)
+
 
 @apps.route("/db-test")
 def db_test():
@@ -5806,6 +6798,16 @@ def team_analysis():
 
     tournaments = get_all_tournaments(association_id)
 
+    # ✅ Team Analysis template expects: [{"value":..,"label":..}]
+    # but get_all_tournaments() returns: [{"id":..,"name":..}]
+    tournaments = tournaments or []
+    tournaments = [
+        {"value": int(t["id"]), "label": t["name"]}
+        for t in tournaments
+        if isinstance(t, dict) and t.get("id") and t.get("name")
+    ]
+
+
     # ================== GET FILTER VALUES ==================
     if request.method == "POST":
         selected_tournament = request.form.get("tournament")
@@ -5823,17 +6825,70 @@ def team_analysis():
         view_type = "batting"
 
     # ================== TEAM DROPDOWN ==================
-    teams = get_teams_by_tournament(selected_tournament) if selected_tournament else []
+    teams = []
+    if selected_tournament:
+        teams_data = get_teams_by_tournament(selected_tournament)
+
+        # ✅ Team Analysis needs NAME ONLY
+        # utils gives [{"id":..,"name":..}] so convert it to ["name1","name2"]
+        teams = [t.get("name") for t in teams_data if isinstance(t, dict) and t.get("name")]
+
 
     # ================== MATCH LIST ==================
+    # ================== TEAM ID RESOLVE (Safe) ==================
+    team_id = None
     if selected_team and selected_tournament:
-        matches = get_matches_by_team(selected_team, selected_tournament)
-    elif selected_tournament:
-        matches = get_matches_by_team(selected_team, selected_tournament)
-    elif selected_team:
-        matches = get_matches_by_team(selected_team)
-    else:
-        matches = []
+        try:
+            teams_data = get_teams_by_tournament(selected_tournament)  # [{"id":..,"name":..}]
+            selected_team_clean = str(selected_team).strip().lower()
+
+            for t in teams_data:
+                tname = str(t.get("name", "")).strip().lower()
+                if tname == selected_team_clean:
+                    team_id = t.get("id")
+                    break
+
+            print("✅ Team Analysis selected_team:", selected_team, "=> team_id:", team_id)
+
+        except Exception as e:
+            print("❌ Team Analysis team_id resolve error:", e)
+            team_id = None
+
+
+
+    # ================== MATCH LIST ==================
+    # ================== MATCH LIST ==================
+    matches = []
+    if selected_tournament and team_id:
+        try:
+            import pandas as pd 
+            conn = get_connection()
+
+            query = """
+                SELECT DISTINCT s.scrM_MatchName
+                FROM tblscoremaster s
+                INNER JOIN tblmatchmaster m ON s.scrM_MchMId = m.mchM_Id
+                WHERE m.mchM_TrnMId = %s
+                AND (s.scrM_tmMIdBatting = %s OR s.scrM_tmMIdBowling = %s)
+                AND s.scrM_MatchName IS NOT NULL
+                AND s.scrM_MatchName <> ''
+                ORDER BY s.scrM_MatchName
+            """
+
+            dfm = pd.read_sql(query, conn, params=(selected_tournament, team_id, team_id))
+            conn.close()
+
+            matches = dfm["scrM_MatchName"].dropna().astype(str).tolist() if not dfm.empty else []
+
+            print("✅ Team Analysis matches found:", len(matches))
+
+        except Exception as e:
+            print("❌ Team Analysis match list error:", e)
+            matches = []
+
+
+
+
 
     # ================== FINAL MATCH LIST FOR STATS ==================
     if request.method == "POST" and selected_tournament and selected_team:
@@ -5845,6 +6900,32 @@ def team_analysis():
             selected_matches = [m for m in selected_matches_raw if m in matches]
     else:
         selected_matches = []
+
+    # ✅ Convert selected match names to match IDs for report functions
+    match_ids = []
+
+    if selected_matches:
+        try:
+            conn = get_connection()
+
+            placeholders = ",".join(["%s"] * len(selected_matches))
+            q = f"""
+                SELECT DISTINCT scrM_MchMId
+                FROM tblscoremaster
+                WHERE scrM_MatchName IN ({placeholders})
+            """
+
+            df_ids = pd.read_sql(q, conn, params=tuple(selected_matches))
+            conn.close()
+
+            match_ids = df_ids["scrM_MchMId"].dropna().astype(int).tolist()
+
+            print("✅ Team Analysis match_ids:", match_ids)
+
+        except Exception as e:
+            print("❌ Team Analysis match_id resolve error:", e)
+            match_ids = []
+
 
     # Default values
     show_distribution_card = False
@@ -6188,49 +7269,73 @@ def team_analysis():
             show_distribution_card = True
 
             # Compute ORDER-WISE stats (Top/Middle/Lower) for selected team
-            order_stats = compute_order_stats_for_team(
-                selected_matches, selected_team, view_type
-            )
+            order_stats = compute_order_stats_for_team(match_ids, selected_team, view_type)
 
             # Compute ORDER-WISE stats (Top/Middle/Lower) for opponents (batting and bowling)
-            opp_order_stats = {1: {"Top Order": {}, "Middle Order": {}, "Lower Order": {}}, 2: {"Top Order": {}, "Middle Order": {}, "Lower Order": {}}}
+            opp_order_stats = {
+                1: {"Top Order": {}, "Middle Order": {}, "Lower Order": {}},
+                2: {"Top Order": {}, "Middle Order": {}, "Lower Order": {}}
+            }
+
             if view_type in ["batting", "bowling"]:
                 try:
                     conn = get_connection()
-                    df = get_filtered_score_data(conn, selected_matches)
+                    df = get_filtered_score_data(conn, match_ids)  # ✅ correct (IDs)
                     conn.close()
+
                     if df is not None and not df.empty:
+
+                        # ✅ Opponent teams list
                         if view_type == "batting":
-                            df_opponents = df[df["scrM_tmMIdBowlingName"] == selected_team]
-                            opponent_teams = df_opponents["scrM_tmMIdBattingName"].unique().tolist()
+                            df_opponents = df[df["scrM_tmMIdBattingName"] != selected_team].copy()
+                            opponent_teams = df_opponents["scrM_tmMIdBattingName"].dropna().unique().tolist()
                         else:
-                            df_opponents = df[df["scrM_tmMIdBowlingName"] != selected_team]
-                            opponent_teams = df_opponents["scrM_tmMIdBowlingName"].unique().tolist()
-                        opp_order_stats = {1: {"Top Order": {}, "Middle Order": {}, "Lower Order": {}}, 2: {"Top Order": {}, "Middle Order": {}, "Lower Order": {}}}
+                            df_opponents = df[df["scrM_tmMIdBowlingName"] != selected_team].copy()
+                            opponent_teams = df_opponents["scrM_tmMIdBowlingName"].dropna().unique().tolist()
+
+                        # ✅ Initialize opp_order_stats
+                        opp_order_stats = {
+                            1: {"Top Order": {}, "Middle Order": {}, "Lower Order": {}},
+                            2: {"Top Order": {}, "Middle Order": {}, "Lower Order": {}}
+                        }
+
+                        # ✅ Loop opponents and accumulate stats
                         for opponent in opponent_teams:
-                            stats = compute_order_stats_for_team(selected_matches, opponent, view_type)
+                            # ✅ FIX: use match_ids (NOT selected_matches)
+                            stats = compute_order_stats_for_team(match_ids, opponent, view_type)
+
                             for inning in [1, 2]:
                                 for order_key in ["Top Order", "Middle Order", "Lower Order"]:
-                                    # Sum up values for each stat
+
                                     if view_type == "batting":
                                         stat_keys = ["avg_runs", "sr", "Dots", "Wkts", "4s", "6s", "30+", "50+", "100+"]
                                     else:
                                         stat_keys = ["avg_runs", "econ", "Dots", "Wkts", "4s", "6s", "2W+", "3W+", "5W+"]
+
                                     for stat_key in stat_keys:
                                         val = stats.get(inning, {}).get(order_key, {}).get(stat_key, 0)
+
                                         if stat_key not in opp_order_stats[inning][order_key]:
                                             opp_order_stats[inning][order_key][stat_key] = 0
+
                                         opp_order_stats[inning][order_key][stat_key] += val
-                        # Average all stats (not just avg_runs, sr/econ) over number of opponents
+
+                        # ✅ Average all stats across number of opponents
                         num_opponents = max(len(opponent_teams), 1)
+
                         for inning in [1, 2]:
                             for order_key in ["Top Order", "Middle Order", "Lower Order"]:
                                 if view_type == "batting":
                                     for stat_key in ["avg_runs", "sr", "Dots", "Wkts", "4s", "6s", "30+", "50+", "100+"]:
-                                        opp_order_stats[inning][order_key][stat_key] = round(opp_order_stats[inning][order_key][stat_key] / num_opponents, 2)
+                                        opp_order_stats[inning][order_key][stat_key] = round(
+                                            opp_order_stats[inning][order_key].get(stat_key, 0) / num_opponents, 2
+                                        )
                                 else:
                                     for stat_key in ["avg_runs", "econ", "Dots", "Wkts", "4s", "6s", "2W+", "3W+", "5W+"]:
-                                        opp_order_stats[inning][order_key][stat_key] = round(opp_order_stats[inning][order_key][stat_key] / num_opponents, 2)
+                                        opp_order_stats[inning][order_key][stat_key] = round(
+                                            opp_order_stats[inning][order_key].get(stat_key, 0) / num_opponents, 2
+                                        )
+
                     else:
                         # No data, fill with zeros
                         for inning in [1, 2]:
@@ -6259,12 +7364,14 @@ def team_analysis():
                                         "3W+": 0,
                                         "5W+": 0
                                     }
+
                 except Exception as e:
                     print("Error computing opp_order_stats:", e)
 
+
             # ---------- Load full deliveries for selected matches (one df)
             conn = get_connection()
-            df_all = get_filtered_score_data(conn, selected_matches)
+            df_all = get_filtered_score_data(conn, match_ids)
             # =========================
             # INNING WISE MATCH DISTRIBUTION (TEAM)
             # =========================
@@ -7024,10 +8131,12 @@ def api_team_wagon_filter():
     AJAX endpoint for team vs opponents wagon wheel filter.
     """
 
+    import pandas as pd
+
     data = request.get_json() or {}
 
     selected_team = data.get("selected_team")
-    selected_matches = data.get("selected_matches") or []
+    selected_matches = data.get("selected_matches") or []   # ✅ These are Match NAMES now
     view_type = data.get("view_type", "batting")
 
     t1_runs = data.get("t1_run_filter", None)
@@ -7073,12 +8182,28 @@ def api_team_wagon_filter():
     t2_rf = normalize_runs(t2_runs)
 
     # ------------------------------------------------------------
-    # Load ball-by-ball data
+    # Convert MatchName -> MatchId (IMPORTANT ✅)
     # ------------------------------------------------------------
+    match_ids = []
     try:
         conn = get_connection()
-        df_all = get_filtered_score_data(conn, selected_matches)
+
+        if selected_matches:
+            placeholders = ",".join(["%s"] * len(selected_matches))
+            q = f"""
+                SELECT DISTINCT scrM_MchMId
+                FROM tblscoremaster
+                WHERE scrM_MatchName IN ({placeholders})
+            """
+            df_ids = pd.read_sql(q, conn, params=tuple(selected_matches))
+            match_ids = df_ids["scrM_MchMId"].dropna().astype(int).tolist()
+
+        # ------------------------------------------------------------
+        # Load ball-by-ball data using match_ids
+        # ------------------------------------------------------------
+        df_all = get_filtered_score_data(conn, match_ids)
         conn.close()
+
     except Exception as e:
         print("TEAM WAGON API DB ERROR:", e)
         return jsonify({"error": "DB connection failed"}), 500
@@ -7119,13 +8244,13 @@ def api_team_wagon_filter():
     # ------------------------------------------------------------
     # Convert runs → numeric
     # ------------------------------------------------------------
-    for df in [df_team, df_oppo]:
+    for _df in [df_team, df_oppo]:
         try:
-            df["scrM_BatsmanRuns"] = pd.to_numeric(
-                df["scrM_BatsmanRuns"], errors="coerce"
+            _df["scrM_BatsmanRuns"] = pd.to_numeric(
+                _df["scrM_BatsmanRuns"], errors="coerce"
             ).fillna(0).astype(int)
         except:
-            df["scrM_BatsmanRuns"] = 0
+            _df["scrM_BatsmanRuns"] = 0
 
     # ------------------------------------------------------------
     # APPLY RUN FILTER (1s, 2s, 3s, 4s, 6s)
@@ -7146,7 +8271,6 @@ def api_team_wagon_filter():
             mode=view_type,
             run_filter=t1_rf
         )
-
     except Exception as e:
         print("TEAM RADAR GENERATION ERROR:", e)
         team_img = None
@@ -7158,18 +8282,15 @@ def api_team_wagon_filter():
             mode=view_type,
             run_filter=t2_rf
         )
-
     except Exception as e:
         print("OPPONENT RADAR GENERATION ERROR:", e)
         opponent_img = None
 
-    # ------------------------------------------------------------
-    # Return JSON for frontend update
-    # ------------------------------------------------------------
     return jsonify({
         "team_img": team_img,
         "opponent_img": opponent_img
     })
+
 
 
 @apps.route("/apps/api/player_radar_filter", methods=["POST"])
@@ -7179,86 +8300,107 @@ def api_player_radar_filter():
     Expects JSON: {player_name, filters, selected_team, selected_matches, selected_type}
     Returns: {radar_img: base64_string}
     """
+    import pandas as pd
+
     try:
         from utils import generate_player_radar_chart, get_connection, get_filtered_score_data
     except ImportError:
         from tailwick.utils import generate_player_radar_chart, get_connection, get_filtered_score_data
-    
-    import pandas as pd
-    
+
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         print("🎯 Player Radar Filter API Called with data:", data)
-        
+
         player_name = data.get("player_name")
         filters = data.get("filters", ["all"])
         selected_team = data.get("selected_team")
+
+        # ✅ MatchNames coming from frontend
         selected_matches = data.get("selected_matches", [])
+
         selected_type = data.get("selected_type", "batter")
-        
+
         if not player_name:
             return jsonify({"error": "Player name is required"}), 400
-        
-        # Query database for player data
+
+        # ------------------------------------------------------------
+        # Convert MatchName -> MatchId (IMPORTANT ✅)
+        # ------------------------------------------------------------
+        match_ids = []
         try:
             conn = get_connection()
-            df_all = get_filtered_score_data(conn, selected_matches)
+
+            if selected_matches:
+                placeholders = ",".join(["%s"] * len(selected_matches))
+                q = f"""
+                    SELECT DISTINCT scrM_MchMId
+                    FROM tblscoremaster
+                    WHERE scrM_MatchName IN ({placeholders})
+                """
+                df_ids = pd.read_sql(q, conn, params=tuple(selected_matches))
+                match_ids = df_ids["scrM_MchMId"].dropna().astype(int).tolist()
+
+            # ✅ Load data using match_ids
+            df_all = get_filtered_score_data(conn, match_ids)
             conn.close()
+
         except Exception as e:
             print(f"❌ DB Error: {e}")
             return jsonify({"error": "Database query failed"}), 500
-        
+
         if df_all is None or df_all.empty:
             print("❌ No data returned from database")
             return jsonify({"error": "No data available"}), 404
-        
+
+        # ------------------------------------------------------------
         # Filter by player and team
+        # ------------------------------------------------------------
         if selected_type == "batter":
             name_col = "scrM_PlayMIdStrikerName"
             team_col = "scrM_tmMIdBattingName"
         else:
             name_col = "scrM_PlayMIdBowlerName"
             team_col = "scrM_tmMIdBowlingName"
-        
+
         player_df = df_all[df_all[name_col] == player_name].copy()
-        
+
         if selected_team and team_col in player_df.columns:
             player_df = player_df[player_df[team_col] == selected_team].copy()
-        
+
         if player_df.empty:
             print(f"❌ No data found for player: {player_name}")
             return jsonify({"error": "No player data found"}), 404
-        
+
         print(f"✅ Retrieved player_df with {len(player_df)} rows, selected_team: {selected_team}")
-        
+
         # Normalize filters - if "all" is included, set run_filter to None
         if "all" in filters:
             run_filter = None
         else:
             run_filter = filters
-        
+
         print(f"🎨 Generating radar with run_filter: {run_filter}")
-        
-        # Generate radar chart
+
         radar_img = generate_player_radar_chart(
-            player_df, 
-            player_name, 
-            selected_type, 
-            selected_team, 
+            player_df,
+            player_name,
+            selected_type,
+            selected_team,
             run_filter
         )
-        
+
         if not radar_img:
             return jsonify({"error": "Failed to generate radar chart"}), 500
-        
+
         print("✅ Radar chart generated successfully")
         return jsonify({"radar_img": radar_img})
-        
+
     except Exception as e:
         print(f"❌ Player Radar Filter Error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
 
 
 @apps.route("/apps/api/get_pacespin_matchwise_data", methods=["POST"])
