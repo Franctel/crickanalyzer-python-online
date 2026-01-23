@@ -1,5 +1,5 @@
 {% extends 'partials/base.html' %}
-{% block title %}PLAYER ANALYSIS{% endblock title %}
+{% block title %}PLAYER ANALYSIS 1{% endblock title %}
 
 {% block content %}
 <div class="order-6 col-span-12 2xl:order-1 card 2xl:col-span-12">
@@ -575,7 +575,7 @@ function downloadPlayerPDF(playerName) {
 
           <!-- ✅ Select Metrics Dropdown -->
           <div class="flex items-center gap-2">
-            <label for="metric" class="text-sm font-medium text-slate-600 dark:text-zink-200">Metrics:</label>
+            <!-- <label for="metric" class="text-sm font-medium text-slate-600 dark:text-zink-200">Metrics:</label>
             <select id="metric" name="metric"
                     class="form-select text-xs border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100 rounded-md px-2 py-1">
                 <option value="" {% if not request.form.get('metric') %}selected{% endif %}>Default</option>
@@ -591,7 +591,7 @@ function downloadPlayerPDF(playerName) {
                 <option value="Balls Per Dismissal" {% if request.form.get('metric') == 'Balls Per Dismissal' %}selected{% endif %}>Balls Per Dismissal</option>
                 <option value="Ball %" {% if request.form.get('metric') == 'Ball %' %}selected{% endif %}>Ball %</option>
                 <option value="Wicket" {% if selected_metric == 'Wicket' %}selected{% endif %}>Wickets</option>
-            </select>
+            </select> -->
           </div>
         </div>
 

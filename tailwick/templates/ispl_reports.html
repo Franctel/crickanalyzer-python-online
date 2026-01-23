@@ -19,18 +19,21 @@
 
                 <!-- Tournament -->
                 <div class="relative w-full md:w-1/4">
-                    <label for="tournament" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Tournament</label>
+                    <label for="tournament" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                        Tournament
+                    </label>
+
                     <select id="tournament" name="tournament"
                         class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
                         onchange="this.form.submit()">
-                        
+
                         <option value="" disabled {% if not selected_tournament %}selected{% endif %}>
                             Select Tournament
                         </option>
 
                         {% for t in tournaments %}
                         <option value="{{ t.value }}"
-                            {% if selected_tournament == t.value|string %}selected{% endif %}>
+                            {% if selected_tournament|string == t.value|string %}selected{% endif %}>
                             {{ t.label }}
                         </option>
                         {% endfor %}
@@ -39,7 +42,10 @@
 
                 <!-- Team -->
                 <div class="relative w-full md:w-1/4">
-                    <label for="team" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Team</label>
+                    <label for="team" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                        Team
+                    </label>
+
                     <select id="team" name="team"
                         class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
                         onchange="this.form.submit()">
@@ -50,39 +56,37 @@
 
                         {% for team in teams %}
                         <option value="{{ team.value }}"
-                            {% if selected_team == team.value|string %}selected{% endif %}>
+                            {% if selected_team|string == team.value|string %}selected{% endif %}>
                             {{ team.label }}
                         </option>
                         {% endfor %}
                     </select>
                 </div>
 
-                <!-- Matches (Multi-select) -->
+                <!-- Matches (Single Select) -->
                 <div class="relative w-full md:w-1/4">
-                    <label for="matches" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Matches</label>
+                    <label for="matches" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                        Matches
+                    </label>
 
-                    <select id="matches" name="matches" multiple data-choices data-choices-removeItem
-                        class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
-                        onchange="this.form.submit()">
+                    <select id="matches" name="matches"
+                        onchange="this.form.submit()"
+                        class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
 
-                        <!-- ✅ All Option -->
-                        <option value="All" {% if 'All' in selected_matches %}selected{% endif %}>All</option>
+                        <option value="" disabled {% if not selected_matches %}selected{% endif %}>
+                            Select Match
+                        </option>
 
-                        <!-- ✅ Match Options -->
-                        {% if 'All' not in selected_matches %}
-                            {% for m in matches %}
-                            <option value="{{ m.value }}"
-                                {% if m.value|string in selected_matches or m.value in selected_matches %}selected{% endif %}>
-                                {{ m.label }}
-                            </option>
-                            {% endfor %}
-                        {% endif %}
-
+                        {% for m in matches %}
+                        <option value="{{ m.value }}"
+                            {% if selected_matches and (m.value|string == selected_matches[0]|string) %}selected{% endif %}>
+                            {{ m.label }}
+                        </option>
+                        {% endfor %}
                     </select>
-
-                    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
-                    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
-                    <script>
+                    <!-- <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+                    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" /> -->
+                    <!-- <script>
                     document.addEventListener('DOMContentLoaded', function() {
                         const matchesDropdown = document.getElementById('matches');
                         if (matchesDropdown) {
@@ -128,11 +132,11 @@
                             });
                         }
                     });
-                    </script>
+                    </script> -->
 
-                    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
-                    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
-                    <script>
+                    <!-- <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+                    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" /> -->
+                    <!-- <script>
                     document.addEventListener('DOMContentLoaded', function() {
                         const matchesDropdown = document.getElementById('matches');
                         if (matchesDropdown) {
@@ -143,7 +147,7 @@
                             });
                         }
                     });
-                    </script>
+                    </script> -->
                 </div>
 
                 <!-- Generate Button -->

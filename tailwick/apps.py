@@ -55,6 +55,7 @@ def dynamic_template_users_view(template_name):
 def ispl_reports():
     import pandas as pd
     from flask import session
+    from flask_login import current_user
 
     association_id = None
     if current_user and getattr(current_user, "is_authenticated", False):
@@ -71,16 +72,19 @@ def ispl_reports():
     ]
 
     # ==========================================================
-    # ✅ Read selected values (IDs)
+    # ✅ Read selected values (IDs)  ✅ SINGLE MATCH SELECT
     # ==========================================================
     if request.method == "POST":
         selected_tournament = request.form.get("tournament")   # tournament_id
         selected_team = request.form.get("team")               # team_id
-        selected_matches = request.form.getlist("matches")     # match_id list OR ["All"]
+        selected_match = request.form.get("matches")           # ✅ single match_id
     else:
         selected_tournament = request.args.get("tournament")
         selected_team = request.args.get("team")
-        selected_matches = request.args.getlist("matches")
+        selected_match = request.args.get("matches")           # ✅ single match_id
+
+    # ✅ Keep as list so existing template logic doesn't break
+    selected_matches = [selected_match] if selected_match else []
 
     # ==========================================================
     # ✅ Safe conversions
@@ -95,15 +99,13 @@ def ispl_reports():
     except:
         selected_team_id = None
 
-    # ✅ Match IDs list (ignore "All")
+    # ✅ Convert selected_match into list of int ids
     selected_match_ids = []
-    for m in selected_matches:
-        if str(m).strip().lower() == "all":
-            continue
+    if selected_match:
         try:
-            selected_match_ids.append(int(m))
+            selected_match_ids = [int(selected_match)]
         except:
-            pass
+            selected_match_ids = []
 
     # ==========================================================
     # ✅ TEAM DROPDOWN  (value=id, label=name)
@@ -153,7 +155,11 @@ def ispl_reports():
                 ORDER BY s.scrM_MatchName
             """
 
-            dfm = pd.read_sql(q, conn, params=(selected_tournament_id, selected_team_id, selected_team_id))
+            dfm = pd.read_sql(
+                q,
+                conn,
+                params=(selected_tournament_id, selected_team_id, selected_team_id)
+            )
             conn.close()
 
             matches = [
@@ -183,7 +189,7 @@ def ispl_reports():
     # ✅ Generate report ONLY if match_id selected
     # ==========================================================
     if selected_match_ids and selected_team_id:
-        match_id = selected_match_ids[0]  # use first selected match
+        match_id = selected_match_ids[0]  # ✅ single match
 
         try:
             from tailwick.utils import (
@@ -198,7 +204,12 @@ def ispl_reports():
             try:
                 conn = get_connection()
                 df_mn = pd.read_sql(
-                    "SELECT scrM_MatchName FROM tblscoremaster WHERE scrM_MchMId=%s LIMIT 1",
+                    """
+                    SELECT scrM_MatchName
+                    FROM tblscoremaster
+                    WHERE scrM_MchMId = %s
+                    LIMIT 1
+                    """,
                     conn,
                     params=(match_id,)
                 )
@@ -251,9 +262,7 @@ def ispl_reports():
         matches=matches,
         selected_tournament=selected_tournament_id,
         selected_team=selected_team_id,
-
-        # ✅ Keep original selected_matches list to support "All" selection UI
-        selected_matches=selected_matches,
+        selected_matches=selected_matches,   # ✅ still list
 
         powerplay_report=powerplay_report,
         powerplay_sql_debug=powerplay_sql_debug,
@@ -263,6 +272,7 @@ def ispl_reports():
         fifty_summary=fifty_summary,
         fifty_error=fifty_error
     )
+
 
 
 
@@ -479,12 +489,63 @@ def advanced_filters_1():
 
 
     # Build `teams` as list of {value,label} dicts based on selected tournaments (supports multi-select)
+    # ✅ Build `teams` ONLY for selected player (based on batting/bowling role)
     teams = []
     matches = []
+
     try:
-        if selected_tournaments:
+        if selected_tournaments and selected_player:
             conn = get_connection()
             placeholders = ",".join(["%s"] * len(selected_tournaments))
+
+            q = f"""
+                SELECT DISTINCT team_id, team_name
+                FROM (
+                    -- ✅ If player is striker/non-striker → batting team is player's team
+                    SELECT
+                        s.scrM_tmMIdBatting AS team_id,
+                        s.scrM_tmMIdBattingName AS team_name
+                    FROM tblscoremaster s
+                    INNER JOIN tblmatchmaster m ON s.scrM_MchMId = m.mchM_Id
+                    WHERE m.mchM_TrnMId IN ({placeholders})
+                    AND (s.scrM_PlayMIdStriker = %s OR s.scrM_PlayMIdNonStriker = %s)
+
+                    UNION
+
+                    -- ✅ If player is bowler → bowling team is player's team
+                    SELECT
+                        s.scrM_tmMIdBowling AS team_id,
+                        s.scrM_tmMIdBowlingName AS team_name
+                    FROM tblscoremaster s
+                    INNER JOIN tblmatchmaster m ON s.scrM_MchMId = m.mchM_Id
+                    WHERE m.mchM_TrnMId IN ({placeholders})
+                    AND (s.scrM_PlayMIdBowler = %s)
+                ) x
+                WHERE team_id IS NOT NULL AND team_name IS NOT NULL AND team_name <> ''
+                ORDER BY team_name
+            """
+
+            params = (
+                [int(x) for x in selected_tournaments]
+                + [int(selected_player), int(selected_player)]
+                + [int(x) for x in selected_tournaments]
+                + [int(selected_player)]
+            )
+
+            df_teams = pd.read_sql(q, conn, params=tuple(params))
+            conn.close()
+
+            if df_teams is not None and not df_teams.empty:
+                teams = [
+                    {"value": str(int(r["team_id"])), "label": str(r["team_name"])}
+                    for _, r in df_teams.iterrows()
+                ]
+
+        # ✅ fallback if no player selected → show tournament teams (your old logic can remain)
+        elif selected_tournaments:
+            conn = get_connection()
+            placeholders = ",".join(["%s"] * len(selected_tournaments))
+
             q = f"""
                 SELECT DISTINCT
                     COALESCE(s.scrM_tmMIdBatting, s.scrM_tmMIdBowling) AS team_id,
@@ -492,56 +553,24 @@ def advanced_filters_1():
                 FROM tblscoremaster s
                 INNER JOIN tblmatchmaster m ON s.scrM_MchMId = m.mchM_Id
                 WHERE m.mchM_TrnMId IN ({placeholders})
-                  AND (s.scrM_tmMIdBatting IS NOT NULL OR s.scrM_tmMIdBowling IS NOT NULL)
+                AND (s.scrM_tmMIdBatting IS NOT NULL OR s.scrM_tmMIdBowling IS NOT NULL)
+                ORDER BY team_name
             """
 
-            params = list(selected_tournaments)
-            # If a player is selected, restrict teams to matches where player appeared
-            if selected_player:
-                try:
-                    pid_val = int(selected_player)
-                except Exception:
-                    pid_val = selected_player
-                q += " AND (s.scrM_PlayMIdStriker = %s OR s.scrM_PlayMIdBowler = %s OR s.scrM_PlayMIdNonStriker = %s)"
-                params.extend([pid_val, pid_val, pid_val])
-
-            q += " ORDER BY team_name"
+            params = [int(x) for x in selected_tournaments]
             df_teams = pd.read_sql(q, conn, params=tuple(params))
             conn.close()
+
             if df_teams is not None and not df_teams.empty:
-                teams = [{"value": str(int(r['team_id'])) if pd.notna(r['team_id']) else str(r['team_name']), "label": r['team_name']} for _, r in df_teams.iterrows()]
-        elif selected_tournament:
-            # fallback: single tournament
-            try:
-                conn = get_connection()
-                q = """
-                    SELECT DISTINCT
-                        COALESCE(s.scrM_tmMIdBatting, s.scrM_tmMIdBowling) AS team_id,
-                        COALESCE(s.scrM_tmMIdBattingName, s.scrM_tmMIdBowlingName) AS team_name
-                    FROM tblscoremaster s
-                    INNER JOIN tblmatchmaster m ON s.scrM_MchMId = m.mchM_Id
-                    WHERE m.mchM_TrnMId = %s
-                      AND (s.scrM_tmMIdBatting IS NOT NULL OR s.scrM_tmMIdBowling IS NOT NULL)
-                """
-                params = [selected_tournament]
-                if selected_player:
-                    try:
-                        pid_val = int(selected_player)
-                    except Exception:
-                        pid_val = selected_player
-                    q = q.strip() + " AND (s.scrM_PlayMIdStriker = %s OR s.scrM_PlayMIdBowler = %s OR s.scrM_PlayMIdNonStriker = %s)"
-                    params.extend([pid_val, pid_val, pid_val])
-                q = q + " ORDER BY team_name"
-                df_teams = pd.read_sql(q, conn, params=tuple(params))
-                conn.close()
-                if df_teams is not None and not df_teams.empty:
-                    teams = [{"value": str(int(r['team_id'])) if pd.notna(r['team_id']) else str(r['team_name']), "label": r['team_name']} for _, r in df_teams.iterrows()]
-            except Exception:
-                # final fallback to legacy helper which returns names
-                tnames = get_teams_by_tournament(selected_tournament)
-                teams = [{"value": t, "label": t} for t in tnames]
+                teams = [
+                    {"value": str(int(r["team_id"])), "label": str(r["team_name"])}
+                    for _, r in df_teams.iterrows()
+                ]
+
     except Exception as e:
-        print('Error building teams list from tournaments:', e)
+        print("❌ Error building player-based teams:", e)
+        teams = []
+
 
     # Build matches list: return list of dicts {value: match_id, label: match_name}
     try:
@@ -992,13 +1021,13 @@ def advanced_filters_1():
 
             # ✅ FIX: Ensure batters/bowlers always become list of names (string)
             # ✅ FIX: Ensure batters/bowlers always become list of names (string)
-            try:
-                if batters and isinstance(batters[0], dict):
-                    batters = [str(x.get("name", "")).strip() for x in batters if x.get("name")]
-                if bowlers and isinstance(bowlers[0], dict):
-                    bowlers = [str(x.get("name", "")).strip() for x in bowlers if x.get("name")]
-            except Exception as e:
-                print("⚠️ Error converting batters/bowlers dict->string:", e)
+            # try:
+            #     if batters and isinstance(batters[0], dict):
+            #         batters = [str(x.get("name", "")).strip() for x in batters if x.get("name")]
+            #     if bowlers and isinstance(bowlers[0], dict):
+            #         bowlers = [str(x.get("name", "")).strip() for x in bowlers if x.get("name")]
+            # except Exception as e:
+            #     print("⚠️ Error converting batters/bowlers dict->string:", e)
 
 
 
@@ -1053,8 +1082,14 @@ def advanced_filters_1():
                     batter_skill_map = dict(zip(player_df['Batter'], player_df['display_batter']))
                     bowler_skill_map = dict(zip(player_df['Bowler'], player_df['display_bowler']))
 
-                    batters = [batter_skill_map.get(b, b) for b in batters]
-                    bowlers = [bowler_skill_map.get(b, b) for b in bowlers]
+                    for b in bowlers:
+                        base_name = b["label"].split(" (")[0]
+                        b["label"] = bowler_skill_map.get(base_name, b["label"])
+
+                    for b in batters:
+                        base_name = b["label"].split(" (")[0]
+                        b["label"] = batter_skill_map.get(base_name, b["label"])
+
 
                     # --- Prioritize selected player in batters/bowlers lists ---
                     # --- Prioritize selected player in batters/bowlers lists ---
