@@ -10,33 +10,17 @@
         </button>
         <div id="filter-section">
             <form method="POST">
-                <h5 class="text-16 mb-4">Advanced Match Filters</h5>
 
                 <!-- Row 1 (Player Analysis 1): Player, Format, Tournament (multiselect), Team (multiselect), Matches -->
                 <!-- Row 1 (Player Analysis 1): Player, Format, Tournament (multiselect), Team (multiselect), Matches -->
                 <div class="flex flex-col gap-3 md:flex-row md:items-center">
 
-                    <!-- ✅ Player (single select) -->
-                    <div class="relative w-full md:w-1/4">
-                        <label for="player" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Player</label>
-                        <select id="player" name="player"
-                                class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
-                            <option value="" disabled {% if not request.form.get('player') %}selected{% endif %}>
-                                Select Player
-                            </option>
-
-                            {% for p in players %}
-                                <option value="{{ p.id }}"
-                                        {% if request.form.get('player') == (p.id|string) %}selected{% endif %}>
-                                    {{ p.label }}
-                                </option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
                     <!-- ✅ Format (single select) -->
-                    <div class="relative w-full md:w-1/4">
-                        <label for="format_override" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Format</label>
+                    <div class="relative w-full md:w-1/5">
+                        <label for="format_override"
+                            class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                            Format
+                        </label>
                         <select id="format_override" name="format_override"
                                 class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
                                 onchange="this.form.submit()">
@@ -49,33 +33,58 @@
                     </div>
 
                     <!-- ✅ Tournament (multiselect) -->
-                    <div class="relative w-full md:w-1/4">
-                        <label for="tournaments" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Tournament</label>
+                    <div class="relative w-full md:w-1/5">
+                        <label for="tournaments"
+                            class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                            Tournament
+                        </label>
                         <select id="tournaments" name="tournaments[]" multiple
                                 data-choices data-choices-removeItem
                                 onchange="this.form.submit()"
                                 class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
-
                             {% for t in tournaments %}
                                 <option value="{{ t.value }}"
-                                        {% if (t.value|string) in request.form.getlist('tournaments[]') %}selected{% endif %}>
+                                    {% if (t.value|string) in request.form.getlist('tournaments[]') %}selected{% endif %}>
                                     {{ t.label }}
                                 </option>
                             {% endfor %}
                         </select>
                     </div>
 
+                    <!-- ✅ Player (single select) -->
+                    <div class="relative w-full md:w-1/5">
+                        <label for="player"
+                            class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                            Player
+                        </label>
+                        <select id="player" name="player"
+                                class="form-select w-full border border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100"
+                                onchange="this.form.submit()">
+                            <option value="" disabled {% if not request.form.get('player') %}selected{% endif %}>
+                                Select Player
+                            </option>
+                            {% for p in players %}
+                                <option value="{{ p.id }}"
+                                    {% if request.form.get('player') == (p.id|string) %}selected{% endif %}>
+                                    {{ p.label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
                     <!-- ✅ Team (multiselect) -->
-                    <div class="relative w-full md:w-1/4">
-                        <label for="team_multi" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Team</label>
-                        <select id="team_multi" name="team[]" multiple
+                    <div class="relative w-full md:w-1/5">
+                        <label for="team"
+                            class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                            Team
+                        </label>
+                        <select id="team" name="team[]" multiple
                                 data-choices data-choices-removeItem
                                 onchange="this.form.submit()"
                                 class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
-
                             {% for t in teams %}
                                 <option value="{{ t.value }}"
-                                        {% if (t.value|string) in request.form.getlist('team[]') %}selected{% endif %}>
+                                    {% if (t.value|string) in request.form.getlist('team[]') %}selected{% endif %}>
                                     {{ t.label }}
                                 </option>
                             {% endfor %}
@@ -83,17 +92,21 @@
                     </div>
 
                     <!-- ✅ Matches (multiselect) -->
-                    <div class="relative w-full md:w-1/2">
-                        <label for="matches" class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">Matches</label>
+                    <div class="relative w-full md:w-1/5">
+                        <label for="matches"
+                            class="block mb-1 text-sm font-medium text-slate-600 dark:text-zink-200">
+                            Matches
+                        </label>
                         <select id="matches" name="matches[]" multiple
                                 data-choices data-choices-removeItem
                                 class="form-input w-full border-slate-300 dark:border-zink-600 dark:bg-zink-700 dark:text-zink-100">
-
-                            <option value="All" {% if 'All' in request.form.getlist('matches[]') %}selected{% endif %}>All</option>
-
+                            <option value="All"
+                                {% if 'All' in request.form.getlist('matches[]') %}selected{% endif %}>
+                                All
+                            </option>
                             {% for m in matches %}
                                 <option value="{{ m.value }}"
-                                        {% if (m.value|string) in request.form.getlist('matches[]') %}selected{% endif %}>
+                                    {% if (m.value|string) in request.form.getlist('matches[]') %}selected{% endif %}>
                                     {{ m.label }}
                                 </option>
                             {% endfor %}
@@ -101,6 +114,8 @@
                     </div>
 
                 </div>
+
+
 
 
                 <!-- Format-Specific Filters -->
@@ -151,9 +166,9 @@
                         {% set powerplay_end = 6 %}
                         {% set middle_end = 15 %}
                         {% elif total_overs == 10 %}
-                        {# Exact T10 buckets #}
-                        {% set powerplay_end = 3 %}
-                        {% set middle_end = 7 %}
+                        {# Exact T10 buckets (FIXED) #}
+                        {% set powerplay_end = 2 %}
+                        {% set middle_end = 8 %}
                         {% else %}
                         {# Generic split for other limited-overs formats #}
                         {% set powerplay_end = (total_overs * 0.3) | round(0, 'floor') | int %}
@@ -3273,6 +3288,24 @@ function renderLineLengthReport() {
 }
 
 </style>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const tournamentSelect = document.getElementById("tournaments");
+
+    if (!tournamentSelect) return;
+
+    // Choices.js emits its own event
+    tournamentSelect.addEventListener("change", function () {
+        const form = tournamentSelect.closest("form");
+        if (form) {
+            console.log("Tournament changed → submitting form");
+            form.submit();
+        }
+    });
+});
+</script>
+
 
 
 {% endblock content %}

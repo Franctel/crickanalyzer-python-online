@@ -326,19 +326,41 @@ def advanced_filters_1():
     from flask import session
     from flask_login import current_user
 
+    # ✅ ALWAYS initialize dropdown lists to avoid UnboundLocalError
+    tournaments = []
+    players = []
+    teams = []
+    matches = []
+
     association_id = None
     if current_user and getattr(current_user, "is_authenticated", False):
         association_id = getattr(current_user, "trnM_AssociationId", None) or session.get("association_id")
 
-    tournaments = get_all_tournaments(association_id)
+    # tournaments = get_all_tournaments(association_id)
 
     selected_tournaments = request.form.getlist("tournaments[]") if request.method == "POST" else []
     selected_teams = request.form.getlist("team[]") if request.method == "POST" else []
 
-    selected_tournament = selected_tournaments[0] if selected_tournaments else None
-    selected_team = selected_teams[0] if selected_teams else None
+    # 🛡 Detect if user explicitly touched tournament dropdown
+    tournament_touched = bool(request.form.getlist("tournaments[]"))
+    team_touched = bool(request.form.getlist("team[]"))
+    player_touched = bool(request.form.get("player"))
+
+    # Preserve existing selections unless user changed them
+    selected_tournament = None
+    selected_team = None
+
+    if tournament_touched:
+        selected_tournament = selected_tournaments[0] if selected_tournaments else None
+
+    if team_touched:
+        selected_team = selected_teams[0] if selected_teams else None
+
+
 
     selected_matches = request.form.getlist("matches[]") if request.method == "POST" else []
+
+
 
 
     # Selected player (single) and format override (quick select)
@@ -438,6 +460,202 @@ def advanced_filters_1():
             match_format = format_result.lower() if format_result else None
         except Exception as e:
             print("Failed to get match format:", e)
+    
+    # ================== TOURNAMENTS BY FORMAT ==================
+    tournaments = []
+
+    try:
+        if match_format:
+            conn = get_connection()
+            df_t = pd.read_sql(
+                """
+                SELECT t.trnM_Id, t.trnM_TournamentName
+                FROM tbltournaments t
+                JOIN tblz z ON z.z_Id = t.trnM_MatchFormat_z
+                WHERE LOWER(z.z_Name) LIKE %s
+                ORDER BY t.trnM_TournamentName
+                """,
+                conn,
+                params=(f"%{match_format}%",)
+            )
+            conn.close()
+
+            tournaments = [
+                {"value": int(r["trnM_Id"]), "label": r["trnM_TournamentName"]}
+                for _, r in df_t.iterrows()
+            ]
+
+            # ✅ CHANGE-3 FIX:
+            # If format selected but no tournament chosen yet,
+            # auto-select all tournaments for player loading
+            # ✅ Auto-select tournaments ONLY on initial format change
+            if (
+                request.method == "POST"
+                and match_format
+                and not selected_tournaments
+                and not tournament_touched
+                and not selected_team
+                and not selected_player
+            ):
+                selected_tournaments = [str(t["value"]) for t in tournaments]
+                selected_tournament = selected_tournaments[0]
+
+                print("🟢 Auto-selected tournaments ONLY on format change")
+
+
+                print("✅ Auto-selected tournaments for format:", selected_tournaments)
+
+    except Exception as e:
+        print("❌ Tournament load error:", e)
+
+    # ================== PLAYERS BY TOURNAMENT ==================
+    # ================== PLAYERS BY FORMAT / TOURNAMENT ==================
+    # ================== PLAYERS BY TEAM / TOURNAMENT / FORMAT ==================
+    players = []
+
+    try:
+        conn = get_connection()
+
+        # --------------------------------------------------
+        # ✅ CASE: TEAM selected but PLAYER NOT selected
+        # --------------------------------------------------
+        if (selected_teams or selected_team) and not selected_player:
+
+            team_ids = selected_teams if selected_teams else [selected_team]
+            team_ids = [int(x) for x in team_ids if str(x).isdigit()]
+
+            if team_ids:
+                team_ph = ",".join(["%s"] * len(team_ids))
+
+                q = f"""
+                    SELECT DISTINCT
+                        p.playM_Id,
+                        p.playM_PlayerName
+                    FROM tblscoremaster s
+                    JOIN tblplayers p ON
+                        (
+                            -- ✅ BATTERS: player must bat FOR the team
+                            (
+                                (p.playM_Id = s.scrM_PlayMIdStriker
+                                OR p.playM_Id = s.scrM_PlayMIdNonStriker)
+                                AND s.scrM_tmMIdBatting IN ({team_ph})
+                            )
+
+                            OR
+
+                            -- ✅ BOWLERS: player must bowl FOR the team
+                            (
+                                p.playM_Id = s.scrM_PlayMIdBowler
+                                AND s.scrM_tmMIdBowling IN ({team_ph})
+                            )
+                        )
+                    JOIN tblmatchmaster m
+                        ON m.mchM_Id = s.scrM_MchMId
+                    WHERE 1=1
+                """
+
+                params = team_ids + team_ids
+
+                # 🎯 Tournament filter
+                if selected_tournaments:
+                    trn_ph = ",".join(["%s"] * len(selected_tournaments))
+                    q += f" AND m.mchM_TrnMId IN ({trn_ph})"
+                    params += [int(x) for x in selected_tournaments]
+
+                # 🎯 Format filter (only if tournament not selected)
+                elif match_format:
+                    q += """
+                        AND EXISTS (
+                            SELECT 1
+                            FROM tbltournaments t
+                            JOIN tblz z ON z.z_Id = t.trnM_MatchFormat_z
+                            WHERE t.trnM_Id = m.mchM_TrnMId
+                            AND LOWER(z.z_Name) LIKE %s
+                        )
+                    """
+                    params.append(f"%{match_format}%")
+
+                q += " ORDER BY p.playM_PlayerName"
+
+                conn = get_connection()
+                df_p = pd.read_sql(q, conn, params=tuple(params))
+                conn.close()
+
+            else:
+                df_p = pd.DataFrame()
+
+
+        # --------------------------------------------------
+        # CASE 1: Tournament selected → strict filter
+        # --------------------------------------------------
+        elif selected_tournaments or selected_tournament:
+            tournament_ids = selected_tournaments or [selected_tournament]
+            placeholders = ",".join(["%s"] * len(tournament_ids))
+
+            q = f"""
+                SELECT DISTINCT
+                    p.playM_Id,
+                    p.playM_PlayerName
+                FROM tblplayers p
+                JOIN tblscoremaster s
+                    ON p.playM_Id IN (
+                        s.scrM_PlayMIdStriker,
+                        s.scrM_PlayMIdNonStriker,
+                        s.scrM_PlayMIdBowler
+                    )
+                JOIN tblmatchmaster m ON m.mchM_Id = s.scrM_MchMId
+                WHERE m.mchM_TrnMId IN ({placeholders})
+                ORDER BY p.playM_PlayerName
+            """
+
+            df_p = pd.read_sql(q, conn, params=tuple(int(x) for x in tournament_ids))
+
+        # --------------------------------------------------
+        # CASE 2: ONLY format selected → fallback
+        # --------------------------------------------------
+        elif match_format:
+            q = """
+                SELECT DISTINCT
+                    p.playM_Id,
+                    p.playM_PlayerName
+                FROM tblplayers p
+                JOIN tblscoremaster s
+                    ON p.playM_Id IN (
+                        s.scrM_PlayMIdStriker,
+                        s.scrM_PlayMIdNonStriker,
+                        s.scrM_PlayMIdBowler
+                    )
+                JOIN tblmatchmaster m ON m.mchM_Id = s.scrM_MchMId
+                JOIN tbltournaments t ON t.trnM_Id = m.mchM_TrnMId
+                JOIN tblz z ON z.z_Id = t.trnM_MatchFormat_z
+                WHERE LOWER(z.z_Name) LIKE %s
+                ORDER BY p.playM_PlayerName
+            """
+
+            df_p = pd.read_sql(q, conn, params=(f"%{match_format}%",))
+
+        else:
+            df_p = pd.DataFrame()
+
+        conn.close()
+
+        # --------------------------------------------------
+        # Build dropdown
+        # --------------------------------------------------
+        for _, r in df_p.iterrows():
+            players.append({
+                "id": str(int(r["playM_Id"])),
+                "label": r["playM_PlayerName"]
+            })
+
+        print(f"✅ Players loaded dynamically: {len(players)}")
+
+    except Exception as e:
+        print("❌ Player load error:", e)
+
+
+
+
 
     # ✅ AUTO LOAD MATCH IDS if Player + Format selected but Matches not selected
     # ✅ AUTO LOAD MATCH IDS (Tournament + Player + Format) if Matches not selected
@@ -541,6 +759,14 @@ def advanced_filters_1():
                     for _, r in df_teams.iterrows()
                 ]
 
+                # 🛡 Preserve selected team if still valid
+                if selected_team and teams:
+                    team_ids = [t["value"] for t in teams]
+                    if selected_team not in team_ids:
+                        # selected team no longer valid → clear it
+                        selected_team = None
+
+
         # ✅ fallback if no player selected → show tournament teams (your old logic can remain)
         elif selected_tournaments:
             conn = get_connection()
@@ -566,6 +792,13 @@ def advanced_filters_1():
                     {"value": str(int(r["team_id"])), "label": str(r["team_name"])}
                     for _, r in df_teams.iterrows()
                 ]
+                # 🛡 Preserve selected team if still valid
+                if selected_team and teams:
+                    team_ids = [t["value"] for t in teams]
+                    if selected_team not in team_ids:
+                        # selected team no longer valid → clear it
+                        selected_team = None
+
 
     except Exception as e:
         print("❌ Error building player-based teams:", e)
@@ -583,87 +816,137 @@ def advanced_filters_1():
             name_vals = [x for x in sel_team_list if not str(x).isdigit()]
             match_candidates = []
 
-            # numeric team ids -> query matchmaster for ids and names
+            # =========================
+            # NUMERIC TEAM IDS (MAIN)
+            # =========================
             if num_ids:
                 conn = get_connection()
                 team_placeholders = ",".join(["%s"] * len(num_ids))
-                if selected_tournaments:
+
+                # ✅ CASE: Tournament + Player selected → STRICT FILTER
+                if selected_tournaments and selected_player:
                     trn_placeholders = ",".join(["%s"] * len(selected_tournaments))
+
+                    q = f"""
+                        SELECT DISTINCT
+                            m.mchM_Id,
+                            m.mchM_MatchName
+                        FROM tblmatchmaster m
+                        INNER JOIN tblscoremaster s ON s.scrM_MchMId = m.mchM_Id
+                        WHERE
+                            (m.mchM_tmMId1 IN ({team_placeholders}) OR m.mchM_tmMId2 IN ({team_placeholders}))
+                            AND m.mchM_TrnMId IN ({trn_placeholders})
+                            AND (
+                                s.scrM_PlayMIdStriker = %s
+                                OR s.scrM_PlayMIdNonStriker = %s
+                                OR s.scrM_PlayMIdBowler = %s
+                            )
+                        ORDER BY m.mchM_StartDateTime DESC
+                    """
+
+                    params = tuple(
+                        num_ids + num_ids +
+                        [int(x) for x in selected_tournaments] +
+                        [int(selected_player), int(selected_player), int(selected_player)]
+                    )
+
+                # ✅ CASE: Tournament selected but NO player → fallback
+                elif selected_tournaments:
+                    trn_placeholders = ",".join(["%s"] * len(selected_tournaments))
+
                     q = f"""
                         SELECT DISTINCT m.mchM_Id, m.mchM_MatchName
                         FROM tblmatchmaster m
-                        WHERE (m.mchM_tmMId1 IN ({team_placeholders}) OR m.mchM_tmMId2 IN ({team_placeholders}))
-                          AND m.mchM_TrnMId IN ({trn_placeholders})
+                        WHERE
+                            (m.mchM_tmMId1 IN ({team_placeholders}) OR m.mchM_tmMId2 IN ({team_placeholders}))
+                            AND m.mchM_TrnMId IN ({trn_placeholders})
                         ORDER BY m.mchM_StartDateTime DESC
                     """
+
                     params = tuple(num_ids + num_ids + [int(x) for x in selected_tournaments])
+
+                # ✅ CASE: Only team selected → fallback
                 else:
                     q = f"""
                         SELECT DISTINCT m.mchM_Id, m.mchM_MatchName
                         FROM tblmatchmaster m
-                        WHERE (m.mchM_tmMId1 IN ({team_placeholders}) OR m.mchM_tmMId2 IN ({team_placeholders}))
+                        WHERE
+                            (m.mchM_tmMId1 IN ({team_placeholders}) OR m.mchM_tmMId2 IN ({team_placeholders}))
                         ORDER BY m.mchM_StartDateTime DESC
                     """
+
                     params = tuple(num_ids + num_ids)
 
                 df_matches = pd.read_sql(q, conn, params=params)
                 conn.close()
+
                 if df_matches is not None and not df_matches.empty:
                     for _, r in df_matches.iterrows():
-                        mid = r.get('mchM_Id')
-                        mname = r.get('mchM_MatchName')
+                        mid = r.get("mchM_Id")
+                        mname = r.get("mchM_MatchName")
                         if pd.notna(mid) and pd.notna(mname):
-                            match_candidates.append({"value": str(int(mid)), "label": str(mname)})
+                            match_candidates.append({
+                                "value": str(int(mid)),
+                                "label": str(mname)
+                            })
 
-            # name-based teams: use helper to fetch match names (fallback)
+            # =========================
+            # NAME-BASED TEAM FALLBACK
+            # =========================
             for nm in name_vals:
                 try:
                     ms = get_matches_by_team(nm, selected_tournament)
                     if ms:
-                        # helper returns match names; use name as value as fallback
                         for mn in ms:
-                            match_candidates.append({"value": str(mn), "label": str(mn)})
+                            match_candidates.append({
+                                "value": str(mn),
+                                "label": str(mn)
+                            })
                 except Exception:
                     continue
 
-            # dedupe preserving order
+            # =========================
+            # DEDUPE (PRESERVE ORDER)
+            # =========================
             seen = set()
-            matches = [m for m in match_candidates if not (m['value'] in seen or seen.add(m['value']))]
+            matches = [m for m in match_candidates if not (m["value"] in seen or seen.add(m["value"]))]
 
         else:
             # legacy single selected_team behavior
-            if selected_team:
-                if str(selected_team).isdigit():
-                    conn = get_connection()
-                    if selected_tournaments:
-                        placeholders = ",".join(["%s"] * len(selected_tournaments))
-                        q = f"""
-                            SELECT DISTINCT m.mchM_Id, m.mchM_MatchName
-                            FROM tblmatchmaster m
-                            WHERE (m.mchM_tmMId1 = %s OR m.mchM_tmMId2 = %s)
-                              AND m.mchM_TrnMId IN ({placeholders})
-                            ORDER BY m.mchM_StartDateTime DESC
-                        """
-                        params = tuple([int(selected_team), int(selected_team)] + [int(x) for x in selected_tournaments])
-                    else:
-                        q = """
-                            SELECT DISTINCT m.mchM_Id, m.mchM_MatchName
-                            FROM tblmatchmaster m
-                            WHERE (m.mchM_tmMId1 = %s OR m.mchM_tmMId2 = %s)
-                            ORDER BY m.mchM_StartDateTime DESC
-                        """
-                        params = (int(selected_team), int(selected_team))
-                    df_matches = pd.read_sql(q, conn, params=params)
-                    conn.close()
-                    if df_matches is not None and not df_matches.empty:
-                        matches = [{"value": str(int(r['mchM_Id'])), "label": r['mchM_MatchName']} for _, r in df_matches.iterrows()]
+            if selected_team and str(selected_team).isdigit():
+                conn = get_connection()
+
+                if selected_tournaments:
+                    placeholders = ",".join(["%s"] * len(selected_tournaments))
+                    q = f"""
+                        SELECT DISTINCT m.mchM_Id, m.mchM_MatchName
+                        FROM tblmatchmaster m
+                        WHERE (m.mchM_tmMId1 = %s OR m.mchM_tmMId2 = %s)
+                        AND m.mchM_TrnMId IN ({placeholders})
+                        ORDER BY m.mchM_StartDateTime DESC
+                    """
+                    params = tuple([int(selected_team), int(selected_team)] + [int(x) for x in selected_tournaments])
                 else:
-                    # fallback: helper returns names
-                    ms = get_matches_by_team(selected_team, selected_tournament)
-                    if ms:
-                        matches = [{"value": str(mn), "label": str(mn)} for mn in ms]
+                    q = """
+                        SELECT DISTINCT m.mchM_Id, m.mchM_MatchName
+                        FROM tblmatchmaster m
+                        WHERE (m.mchM_tmMId1 = %s OR m.mchM_tmMId2 = %s)
+                        ORDER BY m.mchM_StartDateTime DESC
+                    """
+                    params = (int(selected_team), int(selected_team))
+
+                df_matches = pd.read_sql(q, conn, params=params)
+                conn.close()
+
+                if df_matches is not None and not df_matches.empty:
+                    matches = [
+                        {"value": str(int(r["mchM_Id"])), "label": r["mchM_MatchName"]}
+                        for _, r in df_matches.iterrows()
+                    ]
+
     except Exception as e:
-        print('Error building matches list by team id:', e)
+        print("❌ Error building matches list by team/player:", e)
+
 
     # If matches were returned as id/label dicts, map any selected match ids
     # (from the POST) back to match names so downstream code expecting
@@ -686,188 +969,188 @@ def advanced_filters_1():
 
     days, innings, sessions = [], [], []
     # Fetch all players from DB for Player Analysis 1 (value = player id)
-    players = []
-    try:
-        conn = get_connection()
-        # try richer query first (may fail if columns differ)
-        try:
-            df_players = pd.read_sql(
-                "SELECT playM_Id, playM_PlayerName, playM_BattingStyle, playM_BowlingStyle FROM tblplayers",
-                conn,
-            )
-        except Exception:
-            # fallback to minimal columns if schema differs
-            df_players = pd.read_sql(
-                "SELECT playM_Id, playM_PlayerName FROM tblplayers",
-                conn,
-            )
-        conn.close()
+    # players = []
+    # try:
+    #     conn = get_connection()
+    #     # try richer query first (may fail if columns differ)
+    #     try:
+    #         df_players = pd.read_sql(
+    #             "SELECT playM_Id, playM_PlayerName, playM_BattingStyle, playM_BowlingStyle FROM tblplayers",
+    #             conn,
+    #         )
+    #     except Exception:
+    #         # fallback to minimal columns if schema differs
+    #         df_players = pd.read_sql(
+    #             "SELECT playM_Id, playM_PlayerName FROM tblplayers",
+    #             conn,
+    #         )
+    #     conn.close()
 
-        if not df_players.empty:
-            for _, r in df_players.iterrows():
-                pid = r.get('playM_Id')
-                name = (r.get('playM_PlayerName') or '')
-                # try both possible style column names if present
-                bat = r.get('playM_BattingStyle') if 'playM_BattingStyle' in r.index else r.get('playM_BattingStyle_z') if 'playM_BattingStyle_z' in r.index else ''
-                bowl = r.get('playM_BowlingStyle') if 'playM_BowlingStyle' in r.index else r.get('playM_BowlingStyle_z') if 'playM_BowlingStyle_z' in r.index else ''
-                skills = []
-                if pd.notna(bat) and str(bat).strip():
-                    skills.append(str(bat).strip())
-                if pd.notna(bowl) and str(bowl).strip():
-                    skills.append(str(bowl).strip())
-                label = name
-                if skills:
-                    label = f"{name} ({'/'.join(skills)})"
-                try:
-                    pid_str = str(int(pid)) if pid is not None else ''
-                except Exception:
-                    pid_str = str(pid) if pid is not None else ''
-                players.append({'id': pid_str, 'label': label})
+    #     if not df_players.empty:
+    #         for _, r in df_players.iterrows():
+    #             pid = r.get('playM_Id')
+    #             name = (r.get('playM_PlayerName') or '')
+    #             # try both possible style column names if present
+    #             bat = r.get('playM_BattingStyle') if 'playM_BattingStyle' in r.index else r.get('playM_BattingStyle_z') if 'playM_BattingStyle_z' in r.index else ''
+    #             bowl = r.get('playM_BowlingStyle') if 'playM_BowlingStyle' in r.index else r.get('playM_BowlingStyle_z') if 'playM_BowlingStyle_z' in r.index else ''
+    #             skills = []
+    #             if pd.notna(bat) and str(bat).strip():
+    #                 skills.append(str(bat).strip())
+    #             if pd.notna(bowl) and str(bowl).strip():
+    #                 skills.append(str(bowl).strip())
+    #             label = name
+    #             if skills:
+    #                 label = f"{name} ({'/'.join(skills)})"
+    #             try:
+    #                 pid_str = str(int(pid)) if pid is not None else ''
+    #             except Exception:
+    #                 pid_str = str(pid) if pid is not None else ''
+    #             players.append({'id': pid_str, 'label': label})
 
-        print(f"DEBUG: loaded {len(players)} players for dropdown")
-        if len(players) > 0:
-            print("DEBUG: sample players:", players[:10])
-        # --- If a player is pre-selected, move them to front of the players dropdown ---
-        try:
-            if selected_player and players:
-                sid = str(selected_player)
-                sel_idx = None
-                for i, p in enumerate(players):
-                    if str(p.get('id')) == sid:
-                        sel_idx = i
-                        break
-                    # also allow matching by name token
-                    if p.get('label') and p.get('label').split(' (')[0] == sid:
-                        sel_idx = i
-                        break
-                if sel_idx is not None and sel_idx != 0:
-                    sel = players.pop(sel_idx)
-                    players.insert(0, sel)
-        except Exception as e:
-            print('Error prioritizing selected player in players list:', e)
-    except Exception as e:
-        print('Error loading players for dropdown:', e)
+    #     print(f"DEBUG: loaded {len(players)} players for dropdown")
+    #     if len(players) > 0:
+    #         print("DEBUG: sample players:", players[:10])
+    #     # --- If a player is pre-selected, move them to front of the players dropdown ---
+    #     try:
+    #         if selected_player and players:
+    #             sid = str(selected_player)
+    #             sel_idx = None
+    #             for i, p in enumerate(players):
+    #                 if str(p.get('id')) == sid:
+    #                     sel_idx = i
+    #                     break
+    #                 # also allow matching by name token
+    #                 if p.get('label') and p.get('label').split(' (')[0] == sid:
+    #                     sel_idx = i
+    #                     break
+    #             if sel_idx is not None and sel_idx != 0:
+    #                 sel = players.pop(sel_idx)
+    #                 players.insert(0, sel)
+    #     except Exception as e:
+    #         print('Error prioritizing selected player in players list:', e)
+    # except Exception as e:
+    #     print('Error loading players for dropdown:', e)
 
     # ------------------ New: Filter tournaments by selected player + format ------------------
-    try:
-        # If a player is selected, find tournaments where this player appears and optionally match format
-        if selected_player:
-            conn = get_connection()
-            # First, if a format_override is provided, try to resolve it to z.z_Id
-            format_z_id = None
-            if selected_format_override:
-                try:
-                    df_z = pd.read_sql(
-                        "SELECT z_Id FROM tblz WHERE LOWER(z_Name) LIKE %s LIMIT 1",
-                        conn,
-                        params=(f"%{selected_format_override.lower()}%",),
-                    )
-                    if not df_z.empty:
-                        format_z_id = int(df_z.iloc[0]['z_Id'])
-                except Exception:
-                    format_z_id = None
+    # try:
+    #     # If a player is selected, find tournaments where this player appears and optionally match format
+    #     if selected_player:
+    #         conn = get_connection()
+    #         # First, if a format_override is provided, try to resolve it to z.z_Id
+    #         format_z_id = None
+    #         if selected_format_override:
+    #             try:
+    #                 df_z = pd.read_sql(
+    #                     "SELECT z_Id FROM tblz WHERE LOWER(z_Name) LIKE %s LIMIT 1",
+    #                     conn,
+    #                     params=(f"%{selected_format_override.lower()}%",),
+    #                 )
+    #                 if not df_z.empty:
+    #                     format_z_id = int(df_z.iloc[0]['z_Id'])
+    #             except Exception:
+    #                 format_z_id = None
 
-            # Query tournaments where this player id appears in scoremaster for matches linked to tournaments
-            # Use PlayMId columns which store numeric player ids where available
-            q = """
-                SELECT DISTINCT t.trnM_Id, t.trnM_TournamentName, t.trnM_MatchFormat_z
-                FROM tbltournaments t
-                INNER JOIN tblmatchmaster m ON m.mchM_TrnMId = t.trnM_Id
-                INNER JOIN tblscoremaster s ON s.scrM_MchMId = m.mchM_Id
-                WHERE (
-                    s.scrM_PlayMIdStriker = %s OR s.scrM_PlayMIdBowler = %s OR s.scrM_PlayMIdNonStriker = %s
-                )
-            """
+    #         # Query tournaments where this player id appears in scoremaster for matches linked to tournaments
+    #         # Use PlayMId columns which store numeric player ids where available
+    #         q = """
+    #             SELECT DISTINCT t.trnM_Id, t.trnM_TournamentName, t.trnM_MatchFormat_z
+    #             FROM tbltournaments t
+    #             INNER JOIN tblmatchmaster m ON m.mchM_TrnMId = t.trnM_Id
+    #             INNER JOIN tblscoremaster s ON s.scrM_MchMId = m.mchM_Id
+    #             WHERE (
+    #                 s.scrM_PlayMIdStriker = %s OR s.scrM_PlayMIdBowler = %s OR s.scrM_PlayMIdNonStriker = %s
+    #             )
+    #         """
 
-            params = (selected_player, selected_player, selected_player)
+    #         params = (selected_player, selected_player, selected_player)
 
-            # If format_z_id found, restrict to that format id
-            if format_z_id:
-                q = q.strip() + " AND t.trnM_MatchFormat_z = %s"
-                params = tuple(list(params) + [format_z_id])
+    #         # If format_z_id found, restrict to that format id
+    #         if format_z_id:
+    #             q = q.strip() + " AND t.trnM_MatchFormat_z = %s"
+    #             params = tuple(list(params) + [format_z_id])
 
-            df_t = pd.read_sql(q, conn, params=params)
-            conn.close()
+    #         df_t = pd.read_sql(q, conn, params=params)
+    #         conn.close()
 
-            if df_t is not None and not df_t.empty:
-                # Build tournament options from this filtered set
-                tournaments = [
-                    {"value": int(r['trnM_Id']), "label": r['trnM_TournamentName']}
-                    for _, r in df_t.iterrows()
-                ]
+    #         if df_t is not None and not df_t.empty:
+    #             # Build tournament options from this filtered set
+    #             tournaments = [
+    #                 {"value": int(r['trnM_Id']), "label": r['trnM_TournamentName']}
+    #                 for _, r in df_t.iterrows()
+    #             ]
 
-                # If format not explicitly chosen by user, try to infer and set it in the form
-                if not selected_format_override:
-                    try:
-                        # prefer T20 -> ODI -> T10 -> Test ordering if present
-                        df_formats = df_t['trnM_MatchFormat_z'].dropna().astype(int).unique().tolist()
-                        if df_formats:
-                            # fetch z names for these ids
-                            conn2 = get_connection()
-                            fmt_df = pd.read_sql(
-                                f"SELECT z_Id, z_Name FROM tblz WHERE z_Id IN ({','.join(['%s']*len(df_formats))})",
-                                conn2, params=tuple(df_formats)
-                            )
-                            conn2.close()
-                            # normalize names
-                            fmt_map = {int(r['z_Id']): (r['z_Name'] or '').lower() for _, r in fmt_df.iterrows()}
-                            # ordering preference
-                            pref = ['t20', 'odi', 't10', 'test']
-                            chosen = None
-                            for p in pref:
-                                for fid, name in fmt_map.items():
-                                    if p in name:
-                                        chosen = name
-                                        break
-                                if chosen:
-                                    break
-                            if not chosen:
-                                # pick first available
-                                chosen = list(fmt_map.values())[0]
-                            # set in request.form so template shows it as selected
-                            request.form = request.form.copy()
-                            request.form = request.form
-                            # set format_override to chosen keyword (use simple tokens: t20/odi/t10/test)
-                            token = 't20' if '20' in chosen else ('odi' if 'odi' in chosen else ('t10' if '10' in chosen else ('test' if 'test' in chosen else chosen)))
-                            request.form = request.form.copy()
-                            request.form['format_override'] = token
-                    except Exception as e:
-                        print('Error inferring format for player tournaments:', e)
+    #             # If format not explicitly chosen by user, try to infer and set it in the form
+    #             if not selected_format_override:
+    #                 try:
+    #                     # prefer T20 -> ODI -> T10 -> Test ordering if present
+    #                     df_formats = df_t['trnM_MatchFormat_z'].dropna().astype(int).unique().tolist()
+    #                     if df_formats:
+    #                         # fetch z names for these ids
+    #                         conn2 = get_connection()
+    #                         fmt_df = pd.read_sql(
+    #                             f"SELECT z_Id, z_Name FROM tblz WHERE z_Id IN ({','.join(['%s']*len(df_formats))})",
+    #                             conn2, params=tuple(df_formats)
+    #                         )
+    #                         conn2.close()
+    #                         # normalize names
+    #                         fmt_map = {int(r['z_Id']): (r['z_Name'] or '').lower() for _, r in fmt_df.iterrows()}
+    #                         # ordering preference
+    #                         pref = ['t20', 'odi', 't10', 'test']
+    #                         chosen = None
+    #                         for p in pref:
+    #                             for fid, name in fmt_map.items():
+    #                                 if p in name:
+    #                                     chosen = name
+    #                                     break
+    #                             if chosen:
+    #                                 break
+    #                         if not chosen:
+    #                             # pick first available
+    #                             chosen = list(fmt_map.values())[0]
+    #                         # set in request.form so template shows it as selected
+    #                         request.form = request.form.copy()
+    #                         request.form = request.form
+    #                         # set format_override to chosen keyword (use simple tokens: t20/odi/t10/test)
+    #                         token = 't20' if '20' in chosen else ('odi' if 'odi' in chosen else ('t10' if '10' in chosen else ('test' if 'test' in chosen else chosen)))
+    #                         request.form = request.form.copy()
+    #                         request.form['format_override'] = token
+    #                 except Exception as e:
+    #                     print('Error inferring format for player tournaments:', e)
 
-                # --- Auto-load tournaments/matches for selected player+format ---
-                try:
-                    # If no explicit multi-select tournaments provided, expose all tournaments
-                    if not selected_tournaments:
-                        selected_tournaments = [int(r['trnM_Id']) for _, r in df_t.iterrows() if pd.notna(r['trnM_Id'])]
+    #             # --- Auto-load tournaments/matches for selected player+format ---
+    #             try:
+    #                 # If no explicit multi-select tournaments provided, expose all tournaments
+    #                 if not selected_tournaments:
+    #                     selected_tournaments = [int(r['trnM_Id']) for _, r in df_t.iterrows() if pd.notna(r['trnM_Id'])]
 
-                    # If user hasn't selected matches explicitly, load all matches for this player
-                    # restricted to the tournaments discovered above (and format if applied).
-                    if not selected_matches:
-                        conn2 = get_connection()
-                        params2 = [selected_player, selected_player, selected_player]
-                        q2 = """
-                            SELECT DISTINCT m.mchM_MatchName
-                            FROM tblmatchmaster m
-                            INNER JOIN tblscoremaster s ON s.scrM_MchMId = m.mchM_Id
-                            WHERE (
-                                s.scrM_PlayMIdStriker = %s OR s.scrM_PlayMIdBowler = %s OR s.scrM_PlayMIdNonStriker = %s
-                            )
-                        """
-                        if selected_tournaments:
-                            q2 = q2.strip() + " AND m.mchM_TrnMId IN (" + ",".join(["%s"]*len(selected_tournaments)) + ")"
-                            params2.extend(selected_tournaments)
+    #                 # If user hasn't selected matches explicitly, load all matches for this player
+    #                 # restricted to the tournaments discovered above (and format if applied).
+    #                 if not selected_matches:
+    #                     conn2 = get_connection()
+    #                     params2 = [selected_player, selected_player, selected_player]
+    #                     q2 = """
+    #                         SELECT DISTINCT m.mchM_MatchName
+    #                         FROM tblmatchmaster m
+    #                         INNER JOIN tblscoremaster s ON s.scrM_MchMId = m.mchM_Id
+    #                         WHERE (
+    #                             s.scrM_PlayMIdStriker = %s OR s.scrM_PlayMIdBowler = %s OR s.scrM_PlayMIdNonStriker = %s
+    #                         )
+    #                     """
+    #                     if selected_tournaments:
+    #                         q2 = q2.strip() + " AND m.mchM_TrnMId IN (" + ",".join(["%s"]*len(selected_tournaments)) + ")"
+    #                         params2.extend(selected_tournaments)
 
-                        q2 = q2 + " ORDER BY m.mchM_StartDateTime DESC"
-                        df_matches_player = pd.read_sql(q2, conn2, params=tuple(params2))
-                        conn2.close()
-                        if df_matches_player is not None and not df_matches_player.empty:
-                            # populate selected_matches with match names so reports will load
-                            selected_matches = [str(r['mchM_MatchName']) for _, r in df_matches_player.iterrows()]
-                except Exception as e:
-                    print('Error auto-loading matches for player:', e)
+    #                     q2 = q2 + " ORDER BY m.mchM_StartDateTime DESC"
+    #                     df_matches_player = pd.read_sql(q2, conn2, params=tuple(params2))
+    #                     conn2.close()
+    #                     if df_matches_player is not None and not df_matches_player.empty:
+    #                         # populate selected_matches with match names so reports will load
+    #                         selected_matches = [str(r['mchM_MatchName']) for _, r in df_matches_player.iterrows()]
+    #             except Exception as e:
+    #                 print('Error auto-loading matches for player:', e)
 
-    except Exception as e:
-        print('Error filtering tournaments by player/format:', e)
+    # except Exception as e:
+    #     print('Error filtering tournaments by player/format:', e)
     batters, bowlers = [], []
     kpi_tables = {}
     ball_by_ball_details = []
@@ -1339,7 +1622,7 @@ def advanced_filters_1():
                             try:
                                 pp_end, middle_end = 6, 15  # default for T20
                                 if ('t10' in fmt) or (('10' in fmt) and ('t20' not in fmt) and ('50' not in fmt) and ('odi' not in fmt)):
-                                    pp_end, middle_end = 3, 7
+                                    pp_end, middle_end = 2, 8
                                 elif ('t20' in fmt) or ('twenty' in fmt) or (('20' in fmt) and ('50' not in fmt) and ('odi' not in fmt)):
                                     pp_end, middle_end = 6, 15
                                 elif ('odi' in fmt) or ('one day' in fmt) or ('50' in fmt):
@@ -1353,7 +1636,7 @@ def advanced_filters_1():
                                         elif max_over == 20:
                                             pp_end, middle_end = 6, 15
                                         elif max_over == 10:
-                                            pp_end, middle_end = 3, 7
+                                            pp_end, middle_end = 2, 8
                                     except Exception:
                                         pass
 
@@ -1371,41 +1654,44 @@ def advanced_filters_1():
                         # ✅ Apply per-batter or per-bowler ball-phase filtering (consistent with offline logic)
                         if sel_ball_phase and 'ball_index' in df.columns:
                             try:
-                                key_col = 'scrM_PlayMIdStrikerName' if selected_type == 'batter' else 'scrM_PlayMIdBowlerName'
+                                player_col = 'scrM_PlayMIdStrikerName' if selected_type == 'batter' else 'scrM_PlayMIdBowlerName'
+                                match_col = 'scrM_MchMId'
+
                                 phase_dfs = []
 
-                                for name, sub in df.groupby(key_col, group_keys=False):
+                                for (mid, pname), sub in df.groupby([match_col, player_col], group_keys=False):
+
                                     sub = sub.sort_values(['scrM_OverNo', 'scrM_DelNo']).reset_index(drop=True)
                                     total_balls = len(sub)
 
-                                    # If player bowled/faced ≤10 balls, include all
+                                    # If <=10 balls in that match → take all
                                     if total_balls <= 10:
                                         phase_dfs.append(sub)
                                         continue
 
                                     sel = sel_ball_phase.lower().strip()
 
-                                    # 🟢 First 10 balls
+                                    # 🟢 First 10 balls (PER MATCH)
                                     if 'first' in sel:
                                         phase_dfs.append(sub.head(10))
 
-                                    # 🟠 Middle Balls (exclude first 10 and last 10)
+                                    # 🟠 Middle balls (PER MATCH)
                                     elif 'middle' in sel:
                                         if total_balls > 20:
                                             phase_dfs.append(sub.iloc[10:-10])
                                         else:
-                                            # if between 11–20, take roughly the middle chunk
                                             mid_start = max(1, total_balls // 2 - 2)
                                             mid_end = min(total_balls, total_balls // 2 + 2)
                                             phase_dfs.append(sub.iloc[mid_start:mid_end])
 
-                                    # 🔴 Last 10 balls
+                                    # 🔴 Last 10 balls (PER MATCH)
                                     elif 'last' in sel:
                                         phase_dfs.append(sub.tail(10))
 
-                                # ✅ Merge all filtered subsets back
+                                # ✅ Merge back
                                 if phase_dfs:
                                     df = pd.concat(phase_dfs, ignore_index=True)
+
 
                             except Exception as e:
                                 print("⚠️ Error applying per-player ball-phase filter:", e)
@@ -1552,7 +1838,7 @@ def advanced_filters_1():
                         fmt = str(match_format).lower() if match_format else ""
                         pp_end, middle_end = 6, 15
                         if ('t10' in fmt) or (('10' in fmt) and ('t20' not in fmt) and ('50' not in fmt) and ('odi' not in fmt)):
-                            pp_end, middle_end = 3, 7
+                            pp_end, middle_end = 2, 8
                         elif ('t20' in fmt) or ('twenty' in fmt) or (('20' in fmt) and ('50' not in fmt) and ('odi' not in fmt)):
                             pp_end, middle_end = 6, 15
                         elif ('odi' in fmt) or ('one day' in fmt) or ('50' in fmt):
@@ -1565,7 +1851,7 @@ def advanced_filters_1():
                                 elif max_over == 20:
                                     pp_end, middle_end = 6, 15
                                 elif max_over == 10:
-                                    pp_end, middle_end = 3, 7
+                                    pp_end, middle_end = 2, 8
                             except Exception:
                                 pass
 
@@ -1603,22 +1889,34 @@ def advanced_filters_1():
                         # ✅ Apply per-batter or per-bowler ball phase (ball_by_ball_df)
                         if sel_bp and 'ball_index' in ball_by_ball_df.columns:
                             try:
-                                key_col = 'scrM_PlayMIdStrikerName' if selected_type == 'batter' else 'scrM_PlayMIdBowlerName'
+                                player_col = 'scrM_PlayMIdStrikerName' if selected_type == 'batter' else 'scrM_PlayMIdBowlerName'
+                                match_col = 'scrM_MchMId'
+
                                 phase_dfs = []
 
-                                for name, sub in ball_by_ball_df.groupby(key_col, group_keys=False):
+                                # ✅ GROUP BY MATCH + PLAYER (CRITICAL FIX)
+                                for (mid, pname), sub in ball_by_ball_df.groupby([match_col, player_col], group_keys=False):
+
                                     sub = sub.sort_values(['scrM_OverNo', 'scrM_DelNo']).reset_index(drop=True)
                                     total_balls = len(sub)
 
+                                    # If player has ≤10 balls in THIS match → include all
                                     if total_balls <= 10:
                                         phase_dfs.append(sub)
                                         continue
 
-                                    if 'first' in sel_bp:
+                                    sel = sel_bp.lower().strip()
+
+                                    # 🟢 FIRST 10 BALLS (PER MATCH)
+                                    if 'first' in sel:
                                         phase_dfs.append(sub.head(10))
-                                    elif 'last' in sel_bp:
+
+                                    # 🔴 LAST 10 BALLS (PER MATCH)
+                                    elif 'last' in sel:
                                         phase_dfs.append(sub.tail(10))
-                                    elif 'middle' in sel_bp:
+
+                                    # 🟠 MIDDLE BALLS (PER MATCH)
+                                    elif 'middle' in sel:
                                         if total_balls > 20:
                                             phase_dfs.append(sub.iloc[10:-10])
                                         else:
@@ -1626,11 +1924,13 @@ def advanced_filters_1():
                                             mid_end = min(total_balls, total_balls // 2 + 2)
                                             phase_dfs.append(sub.iloc[mid_start:mid_end])
 
+                                # ✅ MERGE BACK
                                 if phase_dfs:
                                     ball_by_ball_df = pd.concat(phase_dfs, ignore_index=True)
 
                             except Exception as e:
-                                print("⚠️ Error applying per-player ball phase (ball_by_ball_df):", e)
+                                print("⚠️ Error applying MATCH-WISE ball phase (ball_by_ball_df):", e)
+
 
                         else:
                             # fallback by keywords
@@ -2131,7 +2431,7 @@ def advanced_filters():
                             try:
                                 pp_end, middle_end = 6, 15  # default for T20
                                 if ('t10' in fmt) or (('10' in fmt) and ('t20' not in fmt) and ('50' not in fmt) and ('odi' not in fmt)):
-                                    pp_end, middle_end = 3, 7
+                                    pp_end, middle_end = 2, 8
                                 elif ('t20' in fmt) or ('twenty' in fmt) or (('20' in fmt) and ('50' not in fmt) and ('odi' not in fmt)):
                                     pp_end, middle_end = 6, 15
                                 elif ('odi' in fmt) or ('one day' in fmt) or ('50' in fmt):
@@ -2145,7 +2445,7 @@ def advanced_filters():
                                         elif max_over == 20:
                                             pp_end, middle_end = 6, 15
                                         elif max_over == 10:
-                                            pp_end, middle_end = 3, 7
+                                            pp_end, middle_end = 2, 8
                                     except Exception:
                                         pass
 
@@ -2373,7 +2673,7 @@ def advanced_filters():
                         fmt = str(match_format).lower() if match_format else ""
                         pp_end, middle_end = 6, 15
                         if ('t10' in fmt) or (('10' in fmt) and ('t20' not in fmt) and ('50' not in fmt) and ('odi' not in fmt)):
-                            pp_end, middle_end = 3, 7
+                            pp_end, middle_end = 2, 8
                         elif ('t20' in fmt) or ('twenty' in fmt) or (('20' in fmt) and ('50' not in fmt) and ('odi' not in fmt)):
                             pp_end, middle_end = 6, 15
                         elif ('odi' in fmt) or ('one day' in fmt) or ('50' in fmt):
@@ -2386,7 +2686,7 @@ def advanced_filters():
                                 elif max_over == 20:
                                     pp_end, middle_end = 6, 15
                                 elif max_over == 10:
-                                    pp_end, middle_end = 3, 7
+                                    pp_end, middle_end = 2, 8
                             except Exception:
                                 pass
 
@@ -7105,6 +7405,91 @@ def team_analysis():
             "sixes": sixes,
             "econ": econ,
         }
+    
+    # ✅ TEAM phase stats helper (Place ABOVE batting/bowling blocks)
+    def get_team_phase_stats(df, team_name, phase_overs, inning_no, mode="batting"):
+
+        if df is None or df.empty:
+            return {
+                "avg_runs": 0, 
+                "sr": 0, 
+                "econ": 0,
+                "dots": 0, 
+                "wkts": 0, 
+                "fours": 0, 
+                "sixes": 0, 
+                "matches_cnt": 1
+            }
+
+        df_inn = df[df["scrM_InningNo"] == inning_no]
+
+        if mode == "batting":
+            df_inn = df_inn[df_inn["scrM_tmMIdBattingName"] == team_name]
+            runs_col = "scrM_BatsmanRuns"
+        else:
+            df_inn = df_inn[df_inn["scrM_tmMIdBowlingName"] == team_name]
+            runs_col = "scrM_DelRuns"
+
+        df_phase = df_inn[
+            (df_inn["scrM_OverNo"] >= phase_overs[0]) &
+            (df_inn["scrM_OverNo"] <= phase_overs[1])
+        ]
+
+        if df_phase.empty:
+            return {
+                "avg_runs": 0, 
+                "sr": 0, 
+                "econ": 0,
+                "dots": 0, 
+                "wkts": 0, 
+                "fours": 0, 
+                "sixes": 0, 
+                "matches_cnt": 1
+            }
+
+        matches_cnt = df_phase["scrM_MatchName"].nunique() if "scrM_MatchName" in df_phase.columns else 1
+        total_runs = df_phase[runs_col].sum()
+        balls = len(df_phase)
+
+        avg_runs = round(total_runs / matches_cnt, 2) if matches_cnt > 0 else 0
+
+        # ✅ Batting SR or Bowling ECON
+        if mode == "batting":
+            sr = round((total_runs / balls) * 100, 2) if balls > 0 else 0
+            econ = 0
+        else:
+            sr = 0
+            econ = round((total_runs / balls) * 6, 2) if balls > 0 else 0
+
+        dots_count = (
+            (df_phase["scrM_BatsmanRuns"] == 0) &
+            (df_phase["scrM_IsWideBall"] == 0) &
+            (df_phase["scrM_IsNoBall"] == 0)
+        ).sum()
+
+        wkts_count = (df_phase["scrM_IsWicket"] == 1).sum()
+        fours_count = (df_phase["scrM_BatsmanRuns"] == 4).sum()
+        sixes_count = (df_phase["scrM_BatsmanRuns"] == 6).sum()
+
+        # ✅ Convert to AVG per match
+        dots = round(dots_count / matches_cnt, 2) if matches_cnt > 0 else 0
+        wkts = round(wkts_count / matches_cnt, 2) if matches_cnt > 0 else 0
+        fours = round(fours_count / matches_cnt, 2) if matches_cnt > 0 else 0
+        sixes = round(sixes_count / matches_cnt, 2) if matches_cnt > 0 else 0
+
+
+        return {
+            "avg_runs": avg_runs,
+            "sr": sr,
+            "econ": econ,
+            "dots": dots,
+            "wkts": wkts,
+            "fours": fours,
+            "sixes": sixes,
+            "matches_cnt": matches_cnt
+        }
+
+
 
 
     # =================================================================
@@ -7407,6 +7792,34 @@ def team_analysis():
             # ---------- Load full deliveries for selected matches (one df)
             conn = get_connection()
             df_all = get_filtered_score_data(conn, match_ids)
+
+            # ✅ Detect max over from selected match data (T10/T20/ODI)
+            max_over = 20
+            try:
+                if df_all is not None and not df_all.empty and "scrM_OverNo" in df_all.columns:
+                    max_over = int(pd.to_numeric(df_all["scrM_OverNo"], errors="coerce").fillna(0).max())
+            except Exception:
+                max_over = 20
+
+            # ✅ Phase Mapping based on match overs
+            if max_over <= 10:
+                # ✅ T10 mapping
+                phase_powerplay = (1, 2)
+                phase_middle = (3, 8)
+                phase_slog = (9, 10)
+
+            elif max_over <= 20:
+                # ✅ T20 mapping
+                phase_powerplay = (1, 6)
+                phase_middle = (7, 15)
+                phase_slog = (16, 20)
+
+            else:
+                # ✅ ODI mapping (50 overs)
+                phase_powerplay = (1, 10)
+                phase_middle = (11, 40)
+                phase_slog = (41, 50)
+
             # =========================
             # INNING WISE MATCH DISTRIBUTION (TEAM)
             # =========================
@@ -7738,16 +8151,16 @@ def team_analysis():
             #                 BATTING MODE
             # ----------------------------------------------------
             if view_type == "batting":
-                pp_stats = get_powerplay_stats(
-                    selected_tournament, selected_team, selected_matches
-                ) or {}
+                # ✅ TEAM PHASE STATS FROM DF (supports T10 correctly)
+                pp1 = get_team_phase_stats(df_all, selected_team, phase_powerplay, 1, mode="batting")
+                pp2 = get_team_phase_stats(df_all, selected_team, phase_powerplay, 2, mode="batting")
 
-                pp1 = pp_stats.get("pp1", {})
-                pp2 = pp_stats.get("pp2", {})
-                mo1 = pp_stats.get("mo1", {})
-                mo2 = pp_stats.get("mo2", {})
-                so1 = pp_stats.get("so1", {})
-                so2 = pp_stats.get("so2", {})
+                mo1 = get_team_phase_stats(df_all, selected_team, phase_middle, 1, mode="batting")
+                mo2 = get_team_phase_stats(df_all, selected_team, phase_middle, 2, mode="batting")
+
+                so1 = get_team_phase_stats(df_all, selected_team, phase_slog, 1, mode="batting")
+                so2 = get_team_phase_stats(df_all, selected_team, phase_slog, 2, mode="batting")
+
 
 
                 # --- Opponent Inning Wise Match Distribution ---
@@ -7764,6 +8177,7 @@ def team_analysis():
                 else:
                     opp_bat = None
 
+
                 # --- Opponent Powerplay phase stats (overs 1-6) ---
                 def get_opponent_phase_stats(df, phase_overs, inning_no):
                     # df: all opponent batting deliveries
@@ -7776,19 +8190,31 @@ def team_analysis():
                     matches_cnt = df_phase["scrM_MatchName"].nunique() if "scrM_MatchName" in df_phase.columns else 1
                     avg_runs = round(total_runs / matches_cnt, 2) if matches_cnt > 0 else 0
                     sr = round((total_runs / balls) * 100, 2) if balls > 0 else 0
-                    dots = (df_phase["scrM_BatsmanRuns"] == 0).sum()
-                    wkts = (df_phase["scrM_IsWicket"] == 1).sum()
-                    fours = (df_phase["scrM_BatsmanRuns"] == 4).sum()
-                    sixes = (df_phase["scrM_BatsmanRuns"] == 6).sum()
+                    dots_count = (
+                        (df_phase["scrM_BatsmanRuns"] == 0) &
+                        (df_phase["scrM_IsWideBall"] == 0) &
+                        (df_phase["scrM_IsNoBall"] == 0)
+                    ).sum()
+
+                    wkts_count = (df_phase["scrM_IsWicket"] == 1).sum()
+                    fours_count = (df_phase["scrM_BatsmanRuns"] == 4).sum()
+                    sixes_count = (df_phase["scrM_BatsmanRuns"] == 6).sum()
+
+                    dots = round(dots_count / matches_cnt, 2) if matches_cnt > 0 else 0
+                    wkts = round(wkts_count / matches_cnt, 2) if matches_cnt > 0 else 0
+                    fours = round(fours_count / matches_cnt, 2) if matches_cnt > 0 else 0
+                    sixes = round(sixes_count / matches_cnt, 2) if matches_cnt > 0 else 0
+
                     return {"avg_runs": avg_runs, "sr": sr, "dots": dots, "wkts": wkts, "fours": fours, "sixes": sixes, "matches_cnt": matches_cnt}
 
                 # Powerplay: 1-6, Middle: 7-15, Slog: 16-20
-                opp_pp1 = get_opponent_phase_stats(opp_bat, (1, 6), 1) if opp_bat is not None else {}
-                opp_pp2 = get_opponent_phase_stats(opp_bat, (1, 6), 2) if opp_bat is not None else {}
-                opp_mo1 = get_opponent_phase_stats(opp_bat, (7, 15), 1) if opp_bat is not None else {}
-                opp_mo2 = get_opponent_phase_stats(opp_bat, (7, 15), 2) if opp_bat is not None else {}
-                opp_so1 = get_opponent_phase_stats(opp_bat, (16, 20), 1) if opp_bat is not None else {}
-                opp_so2 = get_opponent_phase_stats(opp_bat, (16, 20), 2) if opp_bat is not None else {}
+                opp_pp1 = get_opponent_phase_stats(opp_bat, phase_powerplay, 1) if opp_bat is not None else {}
+                opp_pp2 = get_opponent_phase_stats(opp_bat, phase_powerplay, 2) if opp_bat is not None else {}
+                opp_mo1 = get_opponent_phase_stats(opp_bat, phase_middle, 1) if opp_bat is not None else {}
+                opp_mo2 = get_opponent_phase_stats(opp_bat, phase_middle, 2) if opp_bat is not None else {}
+                opp_so1 = get_opponent_phase_stats(opp_bat, phase_slog, 1) if opp_bat is not None else {}
+                opp_so2 = get_opponent_phase_stats(opp_bat, phase_slog, 2) if opp_bat is not None else {}
+
 
                 return render_template(
                     "apps/team-analysis.html",
@@ -7948,9 +8374,17 @@ def team_analysis():
             # ----------------------------------------------------
 
             if view_type == "bowling":
-                bowl = get_phase_stats_bowling(
-                    selected_tournament, selected_team, selected_matches
-                ) or {}
+                # ✅ TEAM PHASE STATS FROM DF (supports T10 correctly)
+                pp1 = get_team_phase_stats(df_all, selected_team, phase_powerplay, 1, mode="bowling")
+                pp2 = get_team_phase_stats(df_all, selected_team, phase_powerplay, 2, mode="bowling")
+
+                mo1 = get_team_phase_stats(df_all, selected_team, phase_middle, 1, mode="bowling")
+                mo2 = get_team_phase_stats(df_all, selected_team, phase_middle, 2, mode="bowling")
+
+                so1 = get_team_phase_stats(df_all, selected_team, phase_slog, 1, mode="bowling")
+                so2 = get_team_phase_stats(df_all, selected_team, phase_slog, 2, mode="bowling")
+
+                bowl = {"pp1": pp1, "pp2": pp2, "mo1": mo1, "mo2": mo2, "so1": so1, "so2": so2}
 
                 # --- Opponent Inning Wise Match Distribution (Bowling) ---
                 opp_bowling_first_count = 0
@@ -7979,12 +8413,13 @@ def team_analysis():
                     sixes = round((df_phase["scrM_BatsmanRuns"] == 6).sum() / matches_cnt, 2) if matches_cnt > 0 else 0
                     return {"avg_runs": avg_runs, "econ": econ, "dots": dots, "wkts": wkts, "fours": fours, "sixes": sixes}
 
-                opp_bowl_pp1 = get_opponent_bowling_phase_stats(opp_bowl, (1, 6), 1) if opp_bowl is not None else {}
-                opp_bowl_pp2 = get_opponent_bowling_phase_stats(opp_bowl, (1, 6), 2) if opp_bowl is not None else {}
-                opp_bowl_mo1 = get_opponent_bowling_phase_stats(opp_bowl, (7, 15), 1) if opp_bowl is not None else {}
-                opp_bowl_mo2 = get_opponent_bowling_phase_stats(opp_bowl, (7, 15), 2) if opp_bowl is not None else {}
-                opp_bowl_so1 = get_opponent_bowling_phase_stats(opp_bowl, (16, 20), 1) if opp_bowl is not None else {}
-                opp_bowl_so2 = get_opponent_bowling_phase_stats(opp_bowl, (16, 20), 2) if opp_bowl is not None else {}
+                opp_bowl_pp1 = get_opponent_bowling_phase_stats(opp_bowl, phase_powerplay, 1) if opp_bowl is not None else {}
+                opp_bowl_pp2 = get_opponent_bowling_phase_stats(opp_bowl, phase_powerplay, 2) if opp_bowl is not None else {}
+                opp_bowl_mo1 = get_opponent_bowling_phase_stats(opp_bowl, phase_middle, 1) if opp_bowl is not None else {}
+                opp_bowl_mo2 = get_opponent_bowling_phase_stats(opp_bowl, phase_middle, 2) if opp_bowl is not None else {}
+                opp_bowl_so1 = get_opponent_bowling_phase_stats(opp_bowl, phase_slog, 1) if opp_bowl is not None else {}
+                opp_bowl_so2 = get_opponent_bowling_phase_stats(opp_bowl, phase_slog, 2) if opp_bowl is not None else {}
+
 
                 return render_template(
                     "apps/team-analysis.html",
@@ -8908,36 +9343,99 @@ def api_get_phase_matchwise_data():
     Returns consolidated stats + match-wise breakdown for a specific phase and inning.
     """
     data = request.get_json() or {}
-    
+
     selected_tournament = data.get("tournament")
     selected_team = data.get("team")
     selected_matches = data.get("matches", [])
     phase = data.get("phase")  # 'pp', 'mo', 'so'
     inning = data.get("inning")  # 1 or 2
     view_type = data.get("view_type", "batting")
+
     # For 'bowling_opponent', treat as opponent bowling filter
     logic_view_type = view_type
-    
-    print(f"📊 Phase API Called - Tournament: {selected_tournament}, Team: {selected_team}, Matches: {selected_matches}, Phase: {phase}, Inning: {inning}, View: {view_type}")
-    
+
+    print(
+        f"📊 Phase API Called - Tournament: {selected_tournament}, Team: {selected_team}, "
+        f"Matches: {selected_matches}, Phase: {phase}, Inning: {inning}, View: {view_type}"
+    )
+
     if not all([selected_tournament, selected_team, selected_matches, phase, inning]):
-        error_msg = f"Missing parameters - Tournament: {selected_tournament}, Team: {selected_team}, Matches: {len(selected_matches) if selected_matches else 0}, Phase: {phase}, Inning: {inning}"
+        error_msg = (
+            f"Missing parameters - Tournament: {selected_tournament}, Team: {selected_team}, "
+            f"Matches: {len(selected_matches) if selected_matches else 0}, Phase: {phase}, Inning: {inning}"
+        )
         print(f"❌ {error_msg}")
         return jsonify({"error": error_msg}), 400
-    
+
     try:
+        # ==========================================================
+        # ✅ STEP 1: Detect max over from selected matches + inning
+        # ==========================================================
+        max_over = 20
+        try:
+            conn_over = get_connection()
+            q_over = """
+                SELECT MAX(scrM_OverNo) AS max_over
+                FROM tblscoremaster
+                WHERE scrM_TrnMId = %s
+                  AND scrM_MatchName IN %s
+                  AND scrM_InningNo = %s
+            """
+            df_over = pd.read_sql(
+                q_over,
+                conn_over,
+                params=(int(selected_tournament), tuple(selected_matches), int(inning)),
+            )
+            conn_over.close()
+
+            if not df_over.empty and df_over["max_over"].iloc[0] is not None:
+                max_over = int(df_over["max_over"].iloc[0])
+
+        except Exception as e:
+            print("⚠️ Could not detect max_over, defaulting to 20. Error:", e)
+            max_over = 20
+
+        # ==========================================================
+        # ✅ STEP 2: Phase Mapping (T10 / T20 / ODI) - FIXED
+        # ==========================================================
+        if max_over <= 10:
+            # ✅ T10 mapping
+            phase_ranges = {
+                "pp": (1, 2),
+                "mo": (3, 8),
+                "so": (9, 10),
+            }
+        elif max_over <= 20:
+            # ✅ T20 mapping
+            phase_ranges = {
+                "pp": (1, 6),
+                "mo": (7, 15),
+                "so": (16, 20),
+            }
+        else:
+            # ✅ ODI / 50 overs mapping
+            phase_ranges = {
+                "pp": (1, 10),
+                "mo": (11, 40),
+                "so": (41, 50),
+            }
+
+        over_start, over_end = phase_ranges.get(phase, (1, max_over))
+
+        print(
+            f"✅ Phase mapping used: max_over={max_over}, phase={phase}, "
+            f"range={over_start}-{over_end}"
+        )
+
+        # ==========================================================
+        # ✅ STEP 3: Main Data Query
+        # ==========================================================
         conn = get_connection()
         if not conn:
             print("❌ Database connection failed")
             return jsonify({"error": "Database connection failed"}), 500
-        # Use a single %s for IN clause and pass matches as a tuple
-        placeholders = "%s"
-        phase_ranges = {
-            'pp': (1, 6),
-            'mo': (7, 15),
-            'so': (16, 20)
-        }
-        over_start, over_end = phase_ranges.get(phase, (1, 6))
+
+        # Determine correct team filter based on view
         if view_type == "batting":
             team_filter = "scrM_tmMIdBattingName"
             team_value = selected_team
@@ -8950,6 +9448,7 @@ def api_get_phase_matchwise_data():
         else:
             team_filter = "scrM_tmMIdBowlingName"
             team_value = selected_team
+
         query = f"""
             SELECT 
                 scrM_MatchName,
@@ -8970,9 +9469,19 @@ def api_get_phase_matchwise_data():
               AND scrM_InningNo = %s
               AND scrM_OverNo >= %s AND scrM_OverNo <= %s
         """
-        params = (int(selected_tournament), team_value, tuple(selected_matches), int(inning), over_start, over_end)
+
+        params = (
+            int(selected_tournament),
+            team_value,
+            tuple(selected_matches),
+            int(inning),
+            int(over_start),
+            int(over_end),
+        )
+
         print(f"[DEBUG] SQL Query: {query}")
         print(f"[DEBUG] SQL Params: {params}")
+
         try:
             df = pd.read_sql(query, conn, params=params)
             print(f"[DEBUG] DataFrame shape: {df.shape}")
@@ -8983,6 +9492,7 @@ def api_get_phase_matchwise_data():
             return jsonify({"error": str(sql_e)}), 500
         finally:
             conn.close()
+
         print(f"📈 Query returned {len(df)} rows")
 
         if df.empty:
@@ -8990,7 +9500,7 @@ def api_get_phase_matchwise_data():
             return jsonify({
                 "consolidated": {
                     "avg_runs": 0,
-                    "sr_or_econ": "0" if view_type == "batting" else "0%",
+                    "sr_or_econ": "0" if view_type == "batting" else "0",
                     "sr_or_econ_label": "Strike Rate" if view_type == "batting" else "Economy",
                     "dots": 0,
                     "wkts": 0,
@@ -9000,19 +9510,27 @@ def api_get_phase_matchwise_data():
                 "matchwise": []
             })
 
+        # ==========================================================
+        # ✅ STEP 4: Consolidated + Matchwise Logic (unchanged)
+        # ==========================================================
+
         # For 'batting_opponent', calculate batting stats for all teams except selected_team (i.e., all opponents)
         if view_type == "batting_opponent":
             df = df[df["scrM_tmMIdBattingName"] != selected_team]
+
             total_runs = df['scrM_BatsmanRuns'].sum()
             total_balls = len(df)
             total_dots = df['DotBall'].sum()
             total_wkts = df['scrM_IsWicket'].sum()
             total_fours = df['scrM_IsBoundry'].sum()
             total_sixes = df['scrM_IsSixer'].sum()
+
             match_count = df['scrM_MatchName'].nunique()
+
             avg_runs = round(total_runs / match_count, 2) if match_count > 0 else 0
             sr_or_econ = round((total_runs / total_balls) * 100, 2) if total_balls > 0 else 0
             sr_or_econ_label = "Strike Rate"
+
             consolidated = {
                 "avg_runs": avg_runs,
                 "sr_or_econ": f"{sr_or_econ}%",
@@ -9022,18 +9540,21 @@ def api_get_phase_matchwise_data():
                 "fours": round(total_fours / match_count, 2) if match_count > 0 else 0,
                 "sixes": round(total_sixes / match_count, 2) if match_count > 0 else 0
             }
+
             matchwise = []
             for match_name in df['scrM_MatchName'].unique():
                 match_df = df[df['scrM_MatchName'] == match_name]
+
                 match_runs = match_df['scrM_BatsmanRuns'].sum()
                 match_balls = len(match_df)
                 match_dots = match_df['DotBall'].sum()
                 match_wkts = match_df['scrM_IsWicket'].sum()
                 match_fours = match_df['scrM_IsBoundry'].sum()
                 match_sixes = match_df['scrM_IsSixer'].sum()
+
                 match_sr_econ = round((match_runs / match_balls) * 100, 2) if match_balls > 0 else 0
                 match_sr_econ_str = f"{match_sr_econ}%"
-                # Only add if at least one stat is nonzero (actual data)
+
                 if any([match_runs, match_sr_econ, match_dots, match_wkts, match_fours, match_sixes]):
                     matchwise.append({
                         "match": match_name,
@@ -9044,12 +9565,14 @@ def api_get_phase_matchwise_data():
                         "fours": int(match_fours),
                         "sixes": int(match_sixes)
                     })
+
         elif view_type == "bowling_opponent":
-            # For opponent bowling, calculate bowling stats for all teams except selected_team (i.e., all opponents)
             if "scrM_tmMIdBowlingName" not in df.columns:
                 print("❌ Missing scrM_tmMIdBowlingName column in DataFrame for bowling_opponent!")
                 return jsonify({"error": "Missing column in data."}), 500
+
             df = df[df["scrM_tmMIdBowlingName"] != selected_team]
+
             if df.empty:
                 consolidated = {
                     "avg_runs": 0,
@@ -9061,6 +9584,7 @@ def api_get_phase_matchwise_data():
                     "sixes": 0
                 }
                 matchwise = []
+                match_count = 0
             else:
                 total_runs = df['scrM_BatsmanRuns'].sum()
                 total_balls = len(df)
@@ -9068,10 +9592,13 @@ def api_get_phase_matchwise_data():
                 total_wkts = df['scrM_IsWicket'].sum()
                 total_fours = df['scrM_IsBoundry'].sum()
                 total_sixes = df['scrM_IsSixer'].sum()
+
                 match_count = df['scrM_MatchName'].nunique()
+
                 avg_runs = round(total_runs / match_count, 2) if match_count > 0 else 0
                 sr_or_econ = round((total_runs / total_balls) * 6, 2) if total_balls > 0 else 0
                 sr_or_econ_label = "Economy"
+
                 consolidated = {
                     "avg_runs": avg_runs,
                     "sr_or_econ": str(sr_or_econ),
@@ -9081,18 +9608,21 @@ def api_get_phase_matchwise_data():
                     "fours": round(total_fours / match_count, 2) if match_count > 0 else 0,
                     "sixes": round(total_sixes / match_count, 2) if match_count > 0 else 0
                 }
+
                 matchwise = []
                 for match_name in df['scrM_MatchName'].unique():
                     match_df = df[df['scrM_MatchName'] == match_name]
+
                     match_runs = match_df['scrM_BatsmanRuns'].sum()
                     match_balls = len(match_df)
                     match_dots = match_df['DotBall'].sum()
                     match_wkts = match_df['scrM_IsWicket'].sum()
                     match_fours = match_df['scrM_IsBoundry'].sum()
                     match_sixes = match_df['scrM_IsSixer'].sum()
+
                     match_sr_econ = round((match_runs / match_balls) * 6, 2) if match_balls > 0 else 0
                     match_sr_econ_str = str(match_sr_econ)
-                    # Only add if at least one stat is nonzero (actual data)
+
                     if any([match_runs, match_sr_econ, match_dots, match_wkts, match_fours, match_sixes]):
                         matchwise.append({
                             "match": match_name,
@@ -9103,6 +9633,7 @@ def api_get_phase_matchwise_data():
                             "fours": int(match_fours),
                             "sixes": int(match_sixes)
                         })
+
         else:
             total_runs = df['scrM_BatsmanRuns'].sum()
             total_balls = len(df)
@@ -9110,7 +9641,9 @@ def api_get_phase_matchwise_data():
             total_wkts = df['scrM_IsWicket'].sum()
             total_fours = df['scrM_IsBoundry'].sum()
             total_sixes = df['scrM_IsSixer'].sum()
+
             match_count = df['scrM_MatchName'].nunique()
+
             if logic_view_type == "batting":
                 avg_runs = round(total_runs / match_count, 2) if match_count > 0 else 0
                 sr_or_econ = round((total_runs / total_balls) * 100, 2) if total_balls > 0 else 0
@@ -9119,6 +9652,7 @@ def api_get_phase_matchwise_data():
                 avg_runs = round(total_runs / match_count, 2) if match_count > 0 else 0
                 sr_or_econ = round((total_runs / total_balls) * 6, 2) if total_balls > 0 else 0
                 sr_or_econ_label = "Economy"
+
             consolidated = {
                 "avg_runs": avg_runs,
                 "sr_or_econ": f"{sr_or_econ}{'%' if logic_view_type == 'batting' else ''}",
@@ -9128,21 +9662,25 @@ def api_get_phase_matchwise_data():
                 "fours": round(total_fours / match_count, 2) if match_count > 0 else 0,
                 "sixes": round(total_sixes / match_count, 2) if match_count > 0 else 0
             }
+
             matchwise = []
             for match_name in df['scrM_MatchName'].unique():
                 match_df = df[df['scrM_MatchName'] == match_name]
+
                 match_runs = match_df['scrM_BatsmanRuns'].sum()
                 match_balls = len(match_df)
                 match_dots = match_df['DotBall'].sum()
                 match_wkts = match_df['scrM_IsWicket'].sum()
                 match_fours = match_df['scrM_IsBoundry'].sum()
                 match_sixes = match_df['scrM_IsSixer'].sum()
+
                 if logic_view_type == "batting":
                     match_sr_econ = round((match_runs / match_balls) * 100, 2) if match_balls > 0 else 0
                     match_sr_econ_str = f"{match_sr_econ}%"
                 else:
                     match_sr_econ = round((match_runs / match_balls) * 6, 2) if match_balls > 0 else 0
                     match_sr_econ_str = str(match_sr_econ)
+
                 matchwise.append({
                     "match": match_name,
                     "avg_runs": int(match_runs),
@@ -9152,20 +9690,21 @@ def api_get_phase_matchwise_data():
                     "fours": int(match_fours),
                     "sixes": int(match_sixes)
                 })
-        
+
         print(f"✅ Returning data: {match_count} matches, {len(matchwise)} match-wise records")
-        
+
         return jsonify({
             "consolidated": consolidated,
             "matchwise": matchwise
         })
-        
+
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
         print(f"❌ ERROR in api_get_phase_matchwise_data: {e}")
         print(f"Stack trace:\n{error_trace}")
         return jsonify({"error": str(e)}), 500
+
 
 
 

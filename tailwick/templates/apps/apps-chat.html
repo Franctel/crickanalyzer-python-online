@@ -10,7 +10,6 @@
         </button>
         <div id="filter-section">
             <form method="POST">
-                <h5 class="text-16 mb-4">Advanced Match Filters</h5>
 
                 <!-- Row 1: Tournament, Team, Matches -->
                 <div class="flex flex-col gap-3 md:flex-row md:items-center">
@@ -128,9 +127,9 @@
                         {% set powerplay_end = 6 %}
                         {% set middle_end = 15 %}
                         {% elif total_overs == 10 %}
-                        {# Exact T10 buckets #}
-                        {% set powerplay_end = 3 %}
-                        {% set middle_end = 7 %}
+                        {# Exact T10 buckets (FIXED) #}
+                        {% set powerplay_end = 2 %}
+                        {% set middle_end = 8 %}
                         {% else %}
                         {# Generic split for other limited-overs formats #}
                         {% set powerplay_end = (total_overs * 0.3) | round(0, 'floor') | int %}
